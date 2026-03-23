@@ -748,6 +748,8 @@ let saveDebounce = null;
 // ══════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════
+auth.getRedirectResult().catch(() => {});
+
 auth.onAuthStateChanged(async user => {
   document.getElementById('loadingOverlay').style.display = 'none';
   if (user) {
@@ -765,10 +767,7 @@ auth.onAuthStateChanged(async user => {
 
 function loginGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithPopup(provider).catch(e => {
-    if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
-    showLoginError(e.message);
-  });
+  auth.signInWithRedirect(provider).catch(e => showLoginError(e.message));
 }
 
 function loginEmail() {
