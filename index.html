@@ -748,6 +748,11 @@ let saveDebounce = null;
 // ══════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════
+// Captura resultado do redirect do Google antes de ouvir o estado
+auth.getRedirectResult().catch(e => {
+  if (e.code !== 'auth/no-auth-event') showLoginError(e.message);
+});
+
 auth.onAuthStateChanged(async user => {
   document.getElementById('loadingOverlay').style.display = 'none';
   if (user) {
@@ -765,10 +770,7 @@ auth.onAuthStateChanged(async user => {
 
 function loginGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithPopup(provider).catch(e => {
-    if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
-    showLoginError(e.message);
-  });
+  auth.signInWithRedirect(provider).catch(e => showLoginError(e.message));
 }
 
 function loginEmail() {
