@@ -699,8 +699,8 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- ffmpeg.wasm v0.12 - não precisa de SharedArrayBuffer -->
-<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+<!-- ffmpeg.wasm v0.11.6 -->
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
 
 <!-- Firebase v9 compat -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -1443,29 +1443,20 @@ function setBgVolume(val) {
 // ══════════════════════════════════════════════════════
 // FFMPEG — LOAD
 // ══════════════════════════════════════════════════════
-async function toBlobURL(url, mimeType) {
-  const res  = await fetch(url);
-  const blob = new Blob([await res.arrayBuffer()], { type: mimeType });
-  return URL.createObjectURL(blob);
-}
-
 async function ensureFFmpeg() {
   if (ffmpegReady) return;
   setProcSub('Baixando conversor (primeira vez ~20 MB)...');
-
-  const { FFmpeg: FF } = window.FFmpegWASM;
-  ffmpegInst = new FF();
-
-  const BASE = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-  await ffmpegInst.load({
-    coreURL: await toBlobURL(BASE + '/ffmpeg-core.js',   'text/javascript'),
-    wasmURL: await toBlobURL(BASE + '/ffmpeg-core.wasm', 'application/wasm'),
+  const { createFFmpeg } = FFmpeg;
+  ffmpegInst = createFFmpeg({
+    log: false,
+    corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
   });
+  await ffmpegInst.load();
   ffmpegReady = true;
 }
 
 // ══════════════════════════════════════════════════════
-// FFMPEG — CONVERTE UMA IMAGEM EM MP4 DE 14s (API v0.12)
+// FFMPEG — CONVERTE UMA IMAGEM EM MP4 DE 14s (API v0.11)
 // ══════════════════════════════════════════════════════
 let narData = null;
 let bgData  = null;
@@ -1481,17 +1472,17 @@ async function preloadAudioData() {
 }
 
 async function convertImageToMp4(imgFile) {
-  const imgData = await fileToUint8(imgFile);
+  const { fetchFile } = FFmpeg;
   const DURATION = '14';
 
-  // Limpa arquivos anteriores
+  // Limpa arquivos anteriores do FS virtual
   for (const f of ['img.input', 'nar.audio', 'bg.audio', 'out.mp4']) {
-    try { await ffmpegInst.deleteFile(f); } catch(e) {}
+    try { ffmpegInst.FS('unlink', f); } catch(e) {}
   }
 
-  await ffmpegInst.writeFile('img.input', imgData);
-  if (narData) await ffmpegInst.writeFile('nar.audio', narData);
-  if (bgData)  await ffmpegInst.writeFile('bg.audio',  bgData);
+  ffmpegInst.FS('writeFile', 'img.input', await fetchFile(imgFile));
+  if (narData) ffmpegInst.FS('writeFile', 'nar.audio', narData);
+  if (bgData)  ffmpegInst.FS('writeFile', 'bg.audio',  bgData);
 
   let args;
   if (narData && bgData) {
@@ -1538,12 +1529,12 @@ async function convertImageToMp4(imgFile) {
     ];
   }
 
-  await ffmpegInst.exec(args);
+  await ffmpegInst.run(...args);
 
-  const data = await ffmpegInst.readFile('out.mp4');
+  const data = ffmpegInst.FS('readFile', 'out.mp4');
 
   for (const f of ['img.input', 'nar.audio', 'bg.audio', 'out.mp4']) {
-    try { await ffmpegInst.deleteFile(f); } catch(e) {}
+    try { ffmpegInst.FS('unlink', f); } catch(e) {}
   }
 
   return new Blob([data.buffer], { type: 'video/mp4' });
