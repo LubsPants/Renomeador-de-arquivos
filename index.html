@@ -1,0 +1,1589 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Renomeador de Arquivos</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f; --surface: #12121a; --surface2: #1a1a26;
+    --border: #2a2a3e; --accent: #5b5bd6; --accent2: #a78bfa;
+    --accent3: #38bdf8; --success: #34d399; --warn: #fbbf24;
+    --text: #e8e8f0; --muted: #6b6b8a; --danger: #f87171;
+    --feed: #38bdf8; --st: #a78bfa; --tiktok: #fb7185;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Poppins',sans-serif; min-height:100vh; overflow-x:hidden; }
+  body::before {
+    content:''; position:fixed; inset:0; pointer-events:none;
+    background-image: linear-gradient(rgba(91,91,214,0.03) 1px,transparent 1px), linear-gradient(90deg,rgba(91,91,214,0.03) 1px,transparent 1px);
+    background-size:40px 40px;
+  }
+
+  /* ── LOGIN SCREEN ── */
+  #loginScreen {
+    position:fixed; inset:0; z-index:200;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--bg);
+  }
+  .login-card {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:20px; padding:48px 40px; text-align:center;
+    width:360px; display:flex; flex-direction:column; gap:24px;
+  }
+  .login-logo {
+    width:56px; height:56px; margin:0 auto;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));
+    border-radius:14px; display:flex; align-items:center; justify-content:center;
+    font-family:'Poppins',sans-serif; font-weight:800; font-size:24px; color:white;
+  }
+  .login-card h2 { font-family:'Poppins',sans-serif; font-size:22px; font-weight:800; }
+  .login-card p  { font-size:12px; color:var(--muted); line-height:1.6; }
+  .btn-google {
+    display:flex; align-items:center; justify-content:center; gap:12px;
+    background:white; color:#1f1f1f; border:none; border-radius:10px;
+    padding:13px 20px; font-family:'Poppins',sans-serif; font-size:13px;
+    font-weight:500; cursor:pointer; transition:all 0.2s; width:100%;
+  }
+  .btn-google:hover { background:#f0f0f0; transform:translateY(-1px); box-shadow:0 6px 20px rgba(0,0,0,0.3); }
+  .btn-google svg { width:20px; height:20px; flex-shrink:0; }
+  .login-divider { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:11px; }
+  .login-divider::before, .login-divider::after { content:''; flex:1; height:1px; background:var(--border); }
+  .login-email-form { display:flex; flex-direction:column; gap:10px; }
+  .login-email-form input {
+    background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    padding:10px 14px; border-radius:8px; font-family:'Poppins',sans-serif; font-size:13px; width:100%;
+    transition:border-color 0.2s;
+  }
+  .login-email-form input:focus { outline:none; border-color:var(--accent); }
+  .btn-email {
+    background:var(--accent); color:white; border:none; border-radius:8px;
+    padding:10px; font-family:'Poppins',sans-serif; font-size:12px;
+    font-weight:600; cursor:pointer; transition:all 0.2s; text-transform:uppercase; letter-spacing:0.5px;
+  }
+  .btn-email:hover { background:#4a4abb; }
+  .login-toggle { font-size:11px; color:var(--muted); cursor:pointer; }
+  .login-toggle span { color:var(--accent2); text-decoration:underline; cursor:pointer; }
+  #loginError { font-size:11px; color:var(--danger); min-height:16px; }
+
+  /* ── HEADER ── */
+  header {
+    border-bottom:1px solid var(--border); padding:16px 40px;
+    display:flex; align-items:center; gap:14px;
+    background:rgba(18,18,26,0.9); backdrop-filter:blur(12px);
+    position:sticky; top:0; z-index:100;
+  }
+  .logo-mark {
+    width:32px; height:32px; background:linear-gradient(135deg,var(--accent),var(--accent2));
+    border-radius:8px; display:flex; align-items:center; justify-content:center;
+    font-family:'Poppins',sans-serif; font-weight:800; font-size:14px; color:white; flex-shrink:0;
+  }
+  header h1 { font-family:'Poppins',sans-serif; font-weight:700; font-size:16px; letter-spacing:-0.3px; }
+  header p  { font-size:10px; color:var(--muted); margin-top:1px; }
+  .user-badge { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .user-avatar {
+    width:30px; height:30px; border-radius:50%; overflow:hidden;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));
+    display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:700; color:white; flex-shrink:0;
+  }
+  .user-avatar img { width:100%; height:100%; object-fit:cover; }
+  .user-name-display { font-size:12px; color:var(--text); }
+  .user-sub  { font-size:10px; color:var(--muted); }
+  .btn-signout {
+    background:transparent; border:1px solid var(--border); color:var(--muted);
+    padding:5px 10px; border-radius:6px; font-family:'Poppins',sans-serif;
+    font-size:10px; cursor:pointer; transition:all 0.2s; text-transform:uppercase;
+  }
+  .btn-signout:hover { border-color:var(--danger); color:var(--danger); }
+
+  /* ── LAYOUT ── */
+  .main { max-width:1280px; margin:0 auto; padding:28px 40px; display:grid; grid-template-columns:290px 1fr; gap:22px; align-items:start; }
+  .sidebar { display:flex; flex-direction:column; gap:14px; position:sticky; top:76px; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px; }
+  .card-title {
+    font-family:'Poppins',sans-serif; font-size:11px; font-weight:700;
+    text-transform:uppercase; letter-spacing:1.5px; color:var(--muted); margin-bottom:14px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .card-title::before { content:''; width:3px; height:11px; background:var(--accent); border-radius:2px; }
+  .card-title-row {
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;
+  }
+  .card-title-row .card-title { margin-bottom:0; }
+  .btn-text-sm {
+    background:transparent; border:1px solid var(--border); color:var(--muted);
+    font-family:'Poppins',sans-serif; font-size:9px; padding:3px 8px; border-radius:5px;
+    cursor:pointer; text-transform:uppercase; letter-spacing:0.5px; transition:all 0.2s; white-space:nowrap;
+  }
+  .btn-text-sm:hover { border-color:var(--accent2); color:var(--accent2); }
+  .field { margin-bottom:10px; }
+  .field:last-child { margin-bottom:0; }
+  .field label { display:block; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:5px; }
+  select, input[type="text"], input[type="number"] {
+    width:100%; background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    padding:8px 12px; border-radius:8px; font-family:'Poppins',sans-serif; font-size:13px; appearance:none;
+    transition:border-color 0.2s, background 0.2s;
+  }
+  select:focus, input[type="text"]:focus, input[type="number"]:focus { outline:none; border-color:var(--accent); background:rgba(91,91,214,0.05); }
+  .select-wrap { position:relative; }
+  .select-wrap::after { content:'▾'; position:absolute; right:10px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; font-size:11px; }
+  .display-name-row { display:flex; gap:6px; align-items:center; }
+  .display-name-row input { flex:1; }
+  .btn-save-name {
+    background:var(--accent); color:white; border:none; border-radius:7px;
+    padding:8px 12px; font-family:'Poppins',sans-serif; font-size:11px;
+    cursor:pointer; transition:background 0.2s; white-space:nowrap;
+  }
+  .btn-save-name:hover { background:#4a4abb; }
+
+  /* ── PREVIEWS ── */
+  .previews-block { display:flex; flex-direction:column; gap:6px; }
+  .preview-row { border-radius:8px; padding:10px 12px; }
+  .preview-row.feed   { background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.2); }
+  .preview-row.st     { background:rgba(167,139,250,0.07); border:1px solid rgba(167,139,250,0.2); }
+  .preview-row.tiktok { background:rgba(251,113,133,0.07); border:1px solid rgba(251,113,133,0.2); }
+  .plabel { font-size:9px; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; font-weight:600; }
+  .preview-row.feed   .plabel { color:var(--feed); }
+  .preview-row.st     .plabel { color:var(--st); }
+  .preview-row.tiktok .plabel { color:var(--tiktok); }
+  .pname { font-size:11px; color:var(--text); word-break:break-all; line-height:1.5; }
+  .pname .muted { color:var(--muted); }
+
+  /* ── CONTADORES ── */
+  .counters-list { display:flex; flex-direction:column; gap:6px; max-height:300px; overflow-y:auto; padding-right:2px; }
+  .counters-list::-webkit-scrollbar { width:3px; }
+  .counters-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .counters-empty { text-align:center; font-size:11px; color:var(--muted); padding:16px 8px; line-height:1.6; }
+  .counter-item { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; transition:border-color 0.2s; }
+  .counter-item:hover { border-color:rgba(91,91,214,0.4); }
+  .ci-head { font-size:10px; color:var(--accent2); font-weight:600; margin-bottom:5px; }
+  .ci-row  { display:flex; gap:6px; }
+  .ci-col  { flex:1; display:flex; flex-direction:column; gap:2px; }
+  .ci-col span { font-size:9px; color:var(--muted); text-transform:uppercase; }
+  .ci-col input { padding:4px 6px; font-size:12px; border-radius:5px; text-align:center; }
+  .saving-indicator { font-size:10px; color:var(--success); opacity:0; transition:opacity 0.3s; text-align:right; margin-top:4px; }
+  .saving-indicator.show { opacity:1; }
+
+  /* ── HISTÓRICO ── */
+  .history-list { display:flex; flex-direction:column; gap:6px; max-height:280px; overflow-y:auto; padding-right:2px; }
+  .history-list::-webkit-scrollbar { width:3px; }
+  .history-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .history-item {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:8px; padding:9px 11px; transition:border-color 0.2s;
+  }
+  .history-item:hover { border-color:rgba(91,91,214,0.35); }
+  .history-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; }
+  .history-badge { font-size:10px; font-weight:700; color:var(--accent2); letter-spacing:0.5px; }
+  .history-time { font-size:9px; color:var(--muted); }
+  .history-meta { font-size:10px; color:var(--muted); margin-bottom:5px; }
+  .history-meta strong { color:var(--text); }
+  .history-formats { display:flex; gap:5px; flex-wrap:wrap; }
+  .hfmt {
+    font-size:9px; font-weight:600; padding:2px 7px; border-radius:4px;
+    letter-spacing:0.5px; text-transform:uppercase;
+  }
+  .hfmt.FEED   { background:rgba(56,189,248,0.1);  color:var(--feed); }
+  .hfmt.ST     { background:rgba(167,139,250,0.1); color:var(--st); }
+  .hfmt.TIKTOK { background:rgba(251,113,133,0.1); color:var(--tiktok); }
+  .history-empty { text-align:center; font-size:11px; color:var(--muted); padding:20px 8px; }
+
+  /* ── CONTEÚDO ── */
+  .content { display:flex; flex-direction:column; gap:18px; }
+  .status-bar {
+    display:flex; gap:8px; align-items:center;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:10px; padding:11px 16px; flex-wrap:wrap;
+  }
+  .status-pill { display:flex; align-items:center; gap:5px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:4px 10px; font-size:11px; }
+  .status-pill .dot { width:6px; height:6px; border-radius:50%; }
+  .status-pill.feed   .dot { background:var(--feed);   box-shadow:0 0 5px var(--feed); }
+  .status-pill.st     .dot { background:var(--st);     box-shadow:0 0 5px var(--st); }
+  .status-pill.tiktok .dot { background:var(--tiktok); box-shadow:0 0 5px var(--tiktok); }
+  .next-num-badge {
+    font-size:10px; color:var(--muted); background:var(--surface2);
+    border:1px solid var(--border); padding:4px 10px; border-radius:6px; white-space:nowrap;
+  }
+  .next-num-badge span { color:var(--accent3); font-weight:600; }
+  .btn {
+    display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:8px;
+    font-family:'Poppins',sans-serif; font-size:11px; font-weight:500;
+    cursor:pointer; border:none; transition:all 0.2s; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap;
+  }
+  .btn-primary { background:var(--accent); color:white; }
+  .btn-primary:hover { background:#4a4abb; transform:translateY(-1px); }
+  .btn-success { background:linear-gradient(135deg,var(--success),#059669); color:#0a0a0f; font-weight:700; }
+  .btn-success:hover { transform:translateY(-1px); box-shadow:0 6px 20px rgba(52,211,153,0.25); }
+  .btn-success:disabled { opacity:0.4; cursor:not-allowed; transform:none; box-shadow:none; }
+  .btn-danger { background:transparent; color:var(--danger); border:1px solid transparent; font-size:10px; }
+  .btn-danger:hover { border-color:var(--danger); background:rgba(248,113,113,0.05); }
+
+  /* ── AVISO DE NUMERAÇÃO ── */
+  .rename-warning {
+    background:rgba(251,191,36,0.07); border:1px solid rgba(251,191,36,0.3);
+    border-radius:9px; padding:10px 14px; font-size:11px; color:var(--warn);
+    line-height:1.6; display:none;
+  }
+  .rename-warning.show { display:block; }
+  .rename-warning strong { display:block; font-weight:700; margin-bottom:2px; }
+
+  /* ── GRUPOS ── */
+  .groups-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .group-panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  .group-panel.feed   { border-top:3px solid var(--feed); }
+  .group-panel.st     { border-top:3px solid var(--st); }
+  .group-panel.tiktok { border-top:3px solid var(--tiktok); }
+  .group-head { padding:12px 14px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); }
+  .group-tag  { font-family:'Poppins',sans-serif; font-size:13px; font-weight:800; letter-spacing:1px; }
+  .group-panel.feed   .group-tag { color:var(--feed); }
+  .group-panel.st     .group-tag { color:var(--st); }
+  .group-panel.tiktok .group-tag { color:var(--tiktok); }
+  .group-count { font-size:10px; color:var(--muted); background:var(--surface2); border:1px solid var(--border); padding:2px 8px; border-radius:20px; }
+  .col-add-btn {
+    background:var(--surface2); border:1px solid var(--border); color:var(--muted);
+    cursor:pointer; width:22px; height:22px; border-radius:5px; font-size:14px;
+    display:flex; align-items:center; justify-content:center; transition:all 0.15s; flex-shrink:0;
+  }
+  .col-add-btn:hover { border-color:var(--accent); color:var(--text); }
+  .col-dropzone {
+    min-height:160px; padding:8px; transition:background 0.2s;
+    border-radius:0 0 10px 10px; display:flex; flex-direction:column; position:relative;
+  }
+  .col-dropzone.dragover { background:rgba(91,91,214,0.06); outline:2px dashed var(--accent); outline-offset:-4px; }
+  .group-panel.feed   .col-dropzone.dragover { outline-color:var(--feed);   background:rgba(56,189,248,0.06); }
+  .group-panel.st     .col-dropzone.dragover { outline-color:var(--st);     background:rgba(167,139,250,0.06); }
+  .group-panel.tiktok .col-dropzone.dragover { outline-color:var(--tiktok); background:rgba(251,113,133,0.06); }
+  .group-empty { text-align:center; padding:24px 10px; color:var(--muted); font-size:11px; display:flex; flex-direction:column; gap:6px; align-items:center; }
+  .drop-hint-icon { font-size:22px; opacity:0.35; }
+  .group-files { display:flex; flex-direction:column; gap:6px; max-height:380px; overflow-y:auto; }
+  .group-files::-webkit-scrollbar { width:3px; }
+  .group-files::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+  /* ── FILE CHIPS ── */
+  .file-chip { background:var(--surface2); border:1px solid var(--border); border-radius:7px; padding:8px 10px; display:flex; gap:8px; align-items:center; transition:border-color 0.2s; animation:chipIn 0.15s ease; }
+  @keyframes chipIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+  .file-chip.renamed { border-color:rgba(52,211,153,0.3); }
+  .chip-icon { width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0; }
+  .chip-icon.png,.chip-icon.jpeg,.chip-icon.jpg { background:rgba(56,189,248,0.12); }
+  .chip-icon.gif   { background:rgba(167,139,250,0.12); }
+  .chip-icon.mp4,.chip-icon.mov { background:rgba(251,191,36,0.12); }
+  .chip-icon.html  { background:rgba(52,211,153,0.12); }
+  .chip-icon.svg   { background:rgba(91,91,214,0.12); }
+  .chip-icon.pdf   { background:rgba(248,113,113,0.12); }
+  .chip-info { flex:1; overflow:hidden; }
+  .chip-original { font-size:9px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chip-new { font-size:10px; color:var(--accent3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chip-new.pending { color:var(--muted); font-style:italic; }
+  .chip-remove { background:none; border:none; color:var(--muted); cursor:pointer; font-size:11px; padding:2px 4px; border-radius:3px; transition:color 0.15s; flex-shrink:0; }
+  .chip-remove:hover { color:var(--danger); }
+
+  /* ── TOAST ── */
+  .toast {
+    position:fixed; bottom:24px; right:24px; background:var(--surface2); border:1px solid var(--success);
+    color:var(--success); padding:11px 18px; border-radius:10px; font-size:12px;
+    font-family:'Poppins',sans-serif; z-index:999; transform:translateY(80px); opacity:0;
+    transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .toast.show  { transform:translateY(0); opacity:1; }
+  .toast.error { border-color:var(--danger); color:var(--danger); }
+  .toast.warn  { border-color:var(--warn);   color:var(--warn); }
+
+  /* ── LOADING OVERLAY ── */
+  #loadingOverlay {
+    position:fixed; inset:0; z-index:150; background:var(--bg);
+    display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:16px;
+  }
+  .spinner {
+    width:36px; height:36px; border:3px solid var(--border);
+    border-top-color:var(--accent); border-radius:50%;
+    animation:spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #loadingOverlay p { font-size:12px; color:var(--muted); }
+  input[type="file"] { display:none; }
+
+  @media (max-width:960px) {
+    .main { grid-template-columns:1fr; padding:20px; }
+    .sidebar { position:static; }
+    .groups-grid { grid-template-columns:1fr; }
+  }
+
+  /* ── AUDIO STRIP ── */
+  .audio-strip {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:10px; overflow:hidden;
+  }
+  .audio-empty-zone {
+    display:flex; align-items:center; gap:10px; padding:12px 16px;
+    cursor:pointer; transition:background 0.2s; border:2px dashed transparent;
+    border-radius:9px;
+  }
+  .audio-empty-zone:hover { background:rgba(167,139,250,0.05); border-color:rgba(167,139,250,0.3); }
+  .audio-empty-zone.dragover { background:rgba(167,139,250,0.08); border-color:var(--st); }
+  .audio-empty-icon { font-size:18px; opacity:0.6; }
+  .audio-empty-label { font-size:11px; color:var(--muted); }
+  .audio-empty-label strong { color:var(--st); font-weight:600; }
+  .audio-loaded-row {
+    display:flex; align-items:center; gap:12px; padding:10px 16px;
+  }
+  .audio-loaded-icon { font-size:18px; flex-shrink:0; }
+  .audio-wave {
+    display:flex; align-items:center; gap:2px; flex-shrink:0;
+  }
+  .audio-wave span {
+    display:block; width:3px; background:var(--st); border-radius:2px;
+    animation:wave 1.2s ease-in-out infinite;
+  }
+  .audio-wave span:nth-child(1){height:8px;  animation-delay:0s}
+  .audio-wave span:nth-child(2){height:14px; animation-delay:0.15s}
+  .audio-wave span:nth-child(3){height:10px; animation-delay:0.3s}
+  .audio-wave span:nth-child(4){height:16px; animation-delay:0.1s}
+  .audio-wave span:nth-child(5){height:8px;  animation-delay:0.25s}
+  @keyframes wave {
+    0%,100%{transform:scaleY(0.5)} 50%{transform:scaleY(1.2)}
+  }
+  .audio-info { flex:1; overflow:hidden; }
+  .audio-name { font-size:11px; font-weight:600; color:var(--st); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .audio-meta { font-size:10px; color:var(--muted); margin-top:2px; }
+  .audio-badge {
+    background:rgba(251,191,36,0.1); border:1px solid rgba(251,191,36,0.25);
+    color:var(--warn); font-size:9px; font-weight:700; padding:3px 8px;
+    border-radius:5px; white-space:nowrap; text-transform:uppercase; letter-spacing:0.5px;
+  }
+  .audio-clear {
+    background:transparent; border:1px solid var(--border); color:var(--muted);
+    border-radius:5px; padding:4px 8px; font-size:10px; cursor:pointer;
+    font-family:'Poppins',sans-serif; transition:all 0.15s; flex-shrink:0;
+  }
+  .audio-clear:hover { border-color:var(--danger); color:var(--danger); }
+
+  /* ── DUAL AUDIO ── */
+  .dual-audio-row { display:flex; gap:8px; padding:8px; }
+  .audio-col { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:9px; overflow:hidden; min-width:0; }
+  .audio-col-label { font-size:9px; text-transform:uppercase; letter-spacing:1px; font-weight:700; padding:8px 12px 4px; display:flex; align-items:center; gap:5px; }
+  .audio-col.narration .audio-col-label { color:var(--st); }
+  .audio-col.bg-col    .audio-col-label { color:var(--accent2); }
+  .audio-col .audio-empty-zone { border-radius:0; border:none; border-top:1px dashed var(--border); padding:10px 12px; }
+  .audio-col .audio-loaded-row { padding:8px 12px; }
+  .audio-col .audio-badge { font-size:8px; padding:2px 6px; }
+  .vol-row { display:flex; align-items:center; gap:8px; padding:4px 12px 10px; }
+  .vol-label { font-size:10px; color:var(--muted); white-space:nowrap; }
+  input[type="range"].vol-slider { flex:1; accent-color:var(--accent2); cursor:pointer; height:4px; padding:0; }
+  .vol-val { font-size:11px; color:var(--accent2); font-weight:700; min-width:34px; text-align:right; }
+
+  /* chip badge MP4 */
+  .chip-mp4-badge {
+    font-size:8px; font-weight:700; background:rgba(251,191,36,0.12);
+    border:1px solid rgba(251,191,36,0.3); color:var(--warn);
+    padding:1px 5px; border-radius:3px; white-space:nowrap; flex-shrink:0;
+  }
+
+  /* processing overlay durante geração ffmpeg */
+  #processingOverlay {
+    position:fixed; inset:0; z-index:300;
+    background:rgba(10,10,15,0.85); backdrop-filter:blur(6px);
+    display:none; flex-direction:column; align-items:center; justify-content:center; gap:20px;
+  }
+  #processingOverlay.show { display:flex; }
+  .proc-card {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:16px; padding:32px 40px; text-align:center;
+    display:flex; flex-direction:column; gap:16px; min-width:320px;
+  }
+  .proc-title { font-family:'Poppins',sans-serif; font-size:14px; font-weight:700; }
+  .proc-sub   { font-size:11px; color:var(--muted); }
+  .proc-bar-wrap { width:100%; height:8px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+  .proc-bar-fill { height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); border-radius:6px; width:0%; transition:width 0.4s; }
+  .proc-file { font-size:10px; color:var(--accent3); }
+
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <p>Carregando...</p>
+</div>
+
+<!-- LOGIN -->
+<div id="loginScreen" style="display:none;">
+  <div class="login-card">
+    <div class="login-logo">R</div>
+    <div>
+      <h2>Renomeador</h2>
+      <p style="margin-top:6px;">Faça login para acessar suas configurações e contadores salvos.</p>
+    </div>
+    <button class="btn-google" onclick="loginGoogle()">
+      <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Entrar com Google
+    </button>
+    <div class="login-divider">ou</div>
+    <div class="login-email-form">
+      <input type="email" id="emailInput" placeholder="seu@email.com" />
+      <input type="password" id="passInput" placeholder="Senha" />
+      <div id="loginError"></div>
+      <button class="btn-email" id="btnEmailAction" onclick="loginEmail()">Entrar</button>
+      <div class="login-toggle">
+        <span id="toggleText" onclick="toggleMode()">Não tem conta? Cadastre-se</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" style="display:none;">
+<header>
+  <div class="logo-mark">R</div>
+  <div>
+    <h1>Renomeador de Arquivos</h1>
+    <p>0001_(TIPO)_(FRENTE)_(PAÍS)_(FORMATO)_(NOME)</p>
+  </div>
+  <div class="user-badge">
+    <div class="user-avatar" id="userAvatar">?</div>
+    <div>
+      <div class="user-name-display" id="userNameDisplay">—</div>
+      <div class="user-sub" id="userEmail">—</div>
+    </div>
+    <button class="btn-signout" onclick="signOut()">Sair</button>
+  </div>
+</header>
+
+<div class="main">
+  <div class="sidebar">
+
+    <!-- Configs -->
+    <div class="card">
+      <div class="card-title">Configurações</div>
+      <div class="field">
+        <label>Seu nome na nomenclatura</label>
+        <div class="display-name-row">
+          <input type="text" id="userName" placeholder="ex: JOAO" maxlength="20" />
+          <button class="btn-save-name" onclick="saveName()">Salvar</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>País</label>
+        <div class="select-wrap">
+          <select id="selPais">
+            <option value="">— Selecione —</option>
+            <option value="BR">BR — Brasil</option>
+            <option value="NL">NL — Países Baixos</option>
+            <option value="US">US — Estados Unidos</option>
+            <option value="IN">IN — Índia</option>
+            <option value="MX">MX — México</option>
+            <option value="AU">AU — Austrália</option>
+            <option value="TH">TH — Tailândia</option>
+            <option value="PH">PH — Filipinas</option>
+            <option value="AR">AR — Argentina</option>
+            <option value="CO">CO — Colômbia</option>
+            <option value="CL">CL — Chile</option>
+            <option value="PE">PE — Peru</option>
+            <option value="DE">DE — Alemanha</option>
+            <option value="FR">FR — França</option>
+            <option value="BE">BE — Bélgica</option>
+            <option value="TR">TR — Turquia</option>
+            <option value="VN">VN — Vietnã</option>
+            <option value="GR">GR — Grécia</option>
+            <option value="ID">ID — Indonésia</option>
+            <option value="EG">EG — Egito</option>
+            <option value="JP">JP — Japão</option>
+            <option value="AE">AE — Emirados Árabes</option>
+            <option value="UK">UK — Reino Unido</option>
+            <option value="KR">KR — Coreia do Sul</option>
+            <option value="CZ">CZ — República Tcheca</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Frente</label>
+        <div class="select-wrap">
+          <select id="selFrente">
+            <option value="">— Selecione —</option>
+            <option value="EMP">EMP — Empréstimo</option>
+            <option value="CC">CC — Cartão</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Tipo</label>
+        <div class="select-wrap">
+          <select id="selTipo">
+            <option value="">— Selecione —</option>
+            <option value="GIF">GIF</option>
+            <option value="VID">VID</option>
+            <option value="HTML">HTML</option>
+            <option value="PNG">PNG</option>
+            <option value="GOOGLE">GOOGLE</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Previews -->
+    <div class="card">
+      <div class="card-title">Preview dos Nomes</div>
+      <div class="previews-block">
+        <div class="preview-row feed">
+          <div class="plabel">FEED</div>
+          <div class="pname" id="prevFEED"><span class="muted">Preencha os campos...</span></div>
+        </div>
+        <div class="preview-row st">
+          <div class="plabel">ST</div>
+          <div class="pname" id="prevST"><span class="muted">Preencha os campos...</span></div>
+        </div>
+        <div class="preview-row tiktok">
+          <div class="plabel">TIKTOK</div>
+          <div class="pname" id="prevTIKTOK"><span class="muted">Preencha os campos...</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Contadores — só países ativos -->
+    <div class="card">
+      <div class="card-title-row">
+        <div class="card-title">Contadores</div>
+        <button class="btn-text-sm" id="btnToggleCountries" onclick="toggleAllCountries()">Ver todos</button>
+      </div>
+      <div class="counters-list" id="countersList"></div>
+      <div class="saving-indicator" id="savingIndicator">✓ Salvo</div>
+    </div>
+
+    <!-- Histórico -->
+    <div class="card">
+      <div class="card-title">Histórico</div>
+      <div class="history-list" id="historyList">
+        <div class="history-empty">Nenhuma renomeação ainda.</div>
+      </div>
+    </div>
+
+  </div><!-- /sidebar -->
+
+  <!-- CONTENT -->
+  <div class="content">
+
+    <!-- Aviso de numeração desalinhada -->
+    <div class="rename-warning" id="renameWarning">
+      <strong>⚠ Atenção: quantidades diferentes entre formatos</strong>
+      Os formatos têm números de arquivos diferentes. Arquivos sem par em outro formato receberão numeração própria — isso pode causar desalinhamento entre FEED, ST e TIKTOK.
+    </div>
+
+    <div class="status-bar">
+      <div class="status-pill feed">  <div class="dot"></div><span id="stFEED">FEED: 0</span></div>
+      <div class="status-pill st">    <div class="dot"></div><span id="stST">ST: 0</span></div>
+      <div class="status-pill tiktok"><div class="dot"></div><span id="stTIKTOK">TIKTOK: 0</span></div>
+      <div class="next-num-badge" id="nextNumBadge" style="display:none;">
+        Próximo: <span id="nextNumVal">—</span>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="renameAll()">⚡ Renomear Todos</button>
+        <button class="btn btn-success" id="btnDownload" onclick="downloadAll()" disabled>📂 Salvar nas Pastas</button>
+        <button class="btn btn-danger"  onclick="clearAll()">✕ Limpar</button>
+      </div>
+    </div>
+
+    <!-- AUDIO STRIP -->
+    <div class="audio-strip" id="audioStripEl">
+      <div class="dual-audio-row">
+
+        <!-- Narração -->
+        <div class="audio-col narration">
+          <div class="audio-col-label">🎤 Narração</div>
+          <div class="audio-empty-zone" id="narEmptyZone"
+            onclick="document.getElementById('inNarMain').click()"
+            ondragover="narDragOver(event)" ondragleave="narDragLeave(event)" ondrop="narDrop(event)">
+            <input type="file" id="inNarMain" accept="audio/*" onchange="narSelected(this.files[0])"/>
+            <span class="audio-empty-icon">🎤</span>
+            <span class="audio-empty-label"><strong>Adicionar narração</strong></span>
+          </div>
+          <div class="audio-loaded-row" id="narLoadedRow" style="display:none;">
+            <span class="audio-loaded-icon">🎤</span>
+            <div class="audio-wave"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="audio-info">
+              <div class="audio-name" id="narFileName">—</div>
+              <div class="audio-meta" id="narFileMeta">—</div>
+            </div>
+            <div class="audio-badge">MP4 14s</div>
+            <button class="audio-clear" onclick="clearNarration()">✕</button>
+          </div>
+        </div>
+
+        <!-- Fundo -->
+        <div class="audio-col bg-col">
+          <div class="audio-col-label">🎵 Fundo</div>
+          <div class="audio-empty-zone" id="bgEmptyZone"
+            onclick="document.getElementById('inBgMain').click()"
+            ondragover="bgDragOver(event)" ondragleave="bgDragLeave(event)" ondrop="bgDrop(event)">
+            <input type="file" id="inBgMain" accept="audio/*" onchange="bgSelected(this.files[0])"/>
+            <span class="audio-empty-icon">🎵</span>
+            <span class="audio-empty-label"><strong>Adicionar fundo</strong></span>
+          </div>
+          <div class="audio-loaded-row" id="bgLoadedRow" style="display:none;">
+            <span class="audio-loaded-icon">🎵</span>
+            <div class="audio-wave"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="audio-info">
+              <div class="audio-name" id="bgFileName">—</div>
+              <div class="audio-meta" id="bgFileMeta">—</div>
+            </div>
+            <button class="audio-clear" onclick="clearBg()">✕</button>
+          </div>
+          <div class="vol-row" id="bgVolRow" style="display:none;">
+            <span class="vol-label">Vol:</span>
+            <input type="range" class="vol-slider" id="bgVolSlider" min="0" max="100" value="30" oninput="setBgVolume(this.value)"/>
+            <span class="vol-val" id="bgVolVal">30%</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="groups-grid">
+      <div class="group-panel feed">
+        <div class="group-head">
+          <span class="group-tag">FEED</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span class="group-count" id="cntFEED">0 arquivos</span>
+            <button class="col-add-btn" onclick="document.getElementById('inFEED').click()">＋</button>
+            <input type="file" id="inFEED" multiple />
+          </div>
+        </div>
+        <div class="col-dropzone" id="dzFEED">
+          <div class="group-empty" id="emptyFEED"><span class="drop-hint-icon">📥</span><span>Arraste ou clique em ＋</span></div>
+          <div class="group-files" id="grpFEED"></div>
+        </div>
+      </div>
+      <div class="group-panel st">
+        <div class="group-head">
+          <span class="group-tag">ST</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span class="group-count" id="cntST">0 arquivos</span>
+            <button class="col-add-btn" onclick="document.getElementById('inST').click()">＋</button>
+            <input type="file" id="inST" multiple />
+          </div>
+        </div>
+        <div class="col-dropzone" id="dzST">
+          <div class="group-empty" id="emptyST"><span class="drop-hint-icon">📥</span><span>Arraste ou clique em ＋</span></div>
+          <div class="group-files" id="grpST"></div>
+        </div>
+      </div>
+      <div class="group-panel tiktok">
+        <div class="group-head">
+          <span class="group-tag">TIKTOK</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span class="group-count" id="cntTIKTOK">0 arquivos</span>
+            <button class="col-add-btn" onclick="document.getElementById('inTIKTOK').click()">＋</button>
+            <input type="file" id="inTIKTOK" multiple />
+          </div>
+        </div>
+        <div class="col-dropzone" id="dzTIKTOK">
+          <div class="group-empty" id="emptyTIKTOK"><span class="drop-hint-icon">📥</span><span>Arraste ou clique em ＋</span></div>
+          <div class="group-files" id="grpTIKTOK"></div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app -->
+
+<div id="processingOverlay">
+  <div class="proc-card">
+    <div class="proc-title">🎬 Gerando MP4s...</div>
+    <div class="proc-sub" id="procSub">Preparando conversor</div>
+    <div class="proc-bar-wrap"><div class="proc-bar-fill" id="procBarFill"></div></div>
+    <div class="proc-file" id="procFile"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ffmpeg.wasm v0.11 com core compatível -->
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+
+<!-- Firebase v9 compat -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<script>
+// ══════════════════════════════════════════════════════
+// 🔧 CONFIGURAÇÃO FIREBASE
+// ══════════════════════════════════════════════════════
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyCvZwJVehKBFOUk1lVJvBJCv5J9134eRuQ",
+  authDomain:        "rename-5865e.firebaseapp.com",
+  projectId:         "rename-5865e",
+  storageBucket:     "rename-5865e.firebasestorage.app",
+  messagingSenderId: "963889159174",
+  appId:             "1:963889159174:web:16aa759aef33477423f787",
+  measurementId:     "G-WRKTN3QNPH"
+};
+
+// ══════════════════════════════════════════════════════
+// CONSTANTES
+// ══════════════════════════════════════════════════════
+const COUNTRIES = ['BR','NL','US','IN','MX','AU','TH','PH','AR','CO','CL','PE','DE','FR','BE','TR','VN','GR','ID','EG','JP','AE','UK','KR','CZ'];
+const FRONTES   = ['EMP','CC'];
+const FORMATOS  = ['FEED','ST','TIKTOK'];
+const MAX_HISTORY = 20;
+
+// ══════════════════════════════════════════════════════
+// ESTADO
+// ══════════════════════════════════════════════════════
+firebase.initializeApp(FIREBASE_CONFIG);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+let currentUser  = null;
+let counters     = {};   // counters[country][frente] = number
+let renameHistory = [];  // array of history entries (max MAX_HISTORY)
+let files        = [];   // array of { file, group, newName }
+let isRegister   = false;
+let showAllCountries = false;
+let saveDebounce = null;
+
+// ══════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════
+auth.onAuthStateChanged(async user => {
+  document.getElementById('loadingOverlay').style.display = 'none';
+  if (user) {
+    currentUser = user;
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    await loadUserData();
+    renderUI();
+  } else {
+    currentUser = null;
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('app').style.display = 'none';
+  }
+});
+
+function loginGoogle() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithPopup(provider).catch(e => {
+    if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+    showLoginError(e.message);
+  });
+}
+
+function loginEmail() {
+  const email = document.getElementById('emailInput').value.trim();
+  const pass  = document.getElementById('passInput').value;
+  if (!email || !pass) { showLoginError('Preencha email e senha.'); return; }
+  const fn = isRegister
+    ? auth.createUserWithEmailAndPassword(email, pass)
+    : auth.signInWithEmailAndPassword(email, pass);
+  fn.catch(e => showLoginError(translateAuthError(e.code)));
+}
+
+function signOut() { auth.signOut(); }
+
+function toggleMode() {
+  isRegister = !isRegister;
+  document.getElementById('btnEmailAction').textContent = isRegister ? 'Cadastrar' : 'Entrar';
+  document.getElementById('toggleText').textContent     = isRegister ? 'Já tem conta? Entrar' : 'Não tem conta? Cadastre-se';
+  document.getElementById('loginError').textContent     = '';
+}
+
+function showLoginError(msg) { document.getElementById('loginError').textContent = msg; }
+
+function translateAuthError(code) {
+  const map = {
+    'auth/wrong-password':      'Senha incorreta.',
+    'auth/user-not-found':      'Email não encontrado.',
+    'auth/email-already-in-use':'Email já cadastrado.',
+    'auth/weak-password':       'Senha muito fraca (mín. 6 caracteres).',
+    'auth/invalid-email':       'Email inválido.'
+  };
+  return map[code] || 'Erro de autenticação.';
+}
+
+// ══════════════════════════════════════════════════════
+// FIRESTORE — CARREGAR / SALVAR
+// ══════════════════════════════════════════════════════
+function userDocRef() { return db.collection('users').doc(currentUser.uid); }
+
+async function loadUserData() {
+  // Inicializa contadores zerados
+  counters = {};
+  COUNTRIES.forEach(c => {
+    counters[c] = {};
+    FRONTES.forEach(f => { counters[c][f] = 0; });
+  });
+  renameHistory = [];
+
+  const snap = await userDocRef().get();
+  if (!snap.exists) return;
+
+  const data = snap.data();
+
+  if (data.displayName) {
+    document.getElementById('userName').value = data.displayName;
+  }
+
+  if (data.counters) {
+    COUNTRIES.forEach(c => {
+      FRONTES.forEach(f => {
+        const v = data.counters?.[c]?.[f];
+        if (typeof v === 'number') counters[c][f] = v;
+      });
+    });
+  }
+
+  if (Array.isArray(data.history)) {
+    renameHistory = data.history.slice(-MAX_HISTORY);
+  }
+}
+
+function scheduleCloudSave() {
+  clearTimeout(saveDebounce);
+  saveDebounce = setTimeout(saveToCloud, 1200);
+}
+
+async function saveToCloud() {
+  if (!currentUser) return;
+  try {
+    await userDocRef().set({
+      displayName: document.getElementById('userName').value.trim().toUpperCase() || '',
+      counters:    JSON.parse(JSON.stringify(counters)),
+      history:     renameHistory.slice(-MAX_HISTORY),
+      updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    const ind = document.getElementById('savingIndicator');
+    ind.classList.add('show');
+    setTimeout(() => ind.classList.remove('show'), 2000);
+  } catch(e) {
+    console.error('Erro ao salvar:', e);
+  }
+}
+
+async function saveName() {
+  const name = document.getElementById('userName').value.trim().toUpperCase();
+  document.getElementById('userName').value = name;
+  document.getElementById('userNameDisplay').textContent = name || currentUser.displayName || '—';
+  await saveToCloud();
+  updatePreviews();
+  showToast('✓ Nome salvo!');
+}
+
+// ══════════════════════════════════════════════════════
+// RENDER UI
+// ══════════════════════════════════════════════════════
+function renderUI() {
+  // Header: avatar e info do usuário
+  const avatarEl = document.getElementById('userAvatar');
+  if (currentUser.photoURL) {
+    avatarEl.innerHTML = `<img src="${currentUser.photoURL}" alt="avatar" />`;
+  } else {
+    avatarEl.textContent = (currentUser.email || '?')[0].toUpperCase();
+  }
+  document.getElementById('userNameDisplay').textContent =
+    document.getElementById('userName').value || currentUser.displayName || '—';
+  document.getElementById('userEmail').textContent = currentUser.email || '';
+
+  renderCounters();
+  renderHistory();
+  updatePreviews();
+  renderGroups();
+}
+
+// ══════════════════════════════════════════════════════
+// CONTADORES — só países ativos (+ país selecionado)
+// ══════════════════════════════════════════════════════
+function getActiveCountries() {
+  const selected = document.getElementById('selPais').value;
+  if (showAllCountries) return COUNTRIES;
+
+  const active = COUNTRIES.filter(c =>
+    c === selected || FRONTES.some(f => counters[c][f] > 0)
+  );
+  return active;
+}
+
+function toggleAllCountries() {
+  showAllCountries = !showAllCountries;
+  document.getElementById('btnToggleCountries').textContent =
+    showAllCountries ? 'Só ativos' : 'Ver todos';
+  renderCounters();
+}
+
+function renderCounters() {
+  const list     = document.getElementById('countersList');
+  const toShow   = getActiveCountries();
+  const frag     = document.createDocumentFragment();
+
+  if (toShow.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'counters-empty';
+    empty.textContent = 'Selecione um país ou adicione arquivos para ver os contadores.';
+    frag.appendChild(empty);
+  } else {
+    toShow.forEach(c => {
+      const div = document.createElement('div');
+      div.className = 'counter-item';
+      div.innerHTML = `
+        <div class="ci-head">${c}</div>
+        <div class="ci-row">
+          ${FRONTES.map(f => `
+            <div class="ci-col">
+              <span>${f}</span>
+              <input type="number" min="0" value="${counters[c][f]}"
+                onchange="setCounter('${c}','${f}',this.value)" />
+            </div>
+          `).join('')}
+        </div>
+      `;
+      frag.appendChild(div);
+    });
+  }
+
+  list.innerHTML = '';
+  list.appendChild(frag);
+}
+
+function setCounter(c, f, val) {
+  counters[c][f] = Math.max(0, parseInt(val) || 0);
+  scheduleCloudSave();
+  updatePreviews();
+  updateNextNumBadge();
+}
+
+function pad(n) { return String(n).padStart(4, '0'); }
+
+// ══════════════════════════════════════════════════════
+// HISTÓRICO
+// ══════════════════════════════════════════════════════
+function renderHistory() {
+  const list = document.getElementById('historyList');
+  const frag = document.createDocumentFragment();
+
+  if (renameHistory.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'history-empty';
+    empty.textContent = 'Nenhuma renomeação ainda.';
+    frag.appendChild(empty);
+  } else {
+    // Mostra do mais recente para o mais antigo
+    [...renameHistory].reverse().forEach(entry => {
+      const div = document.createElement('div');
+      div.className = 'history-item';
+
+      const date = entry.ts ? new Date(entry.ts) : null;
+      const dateStr = date
+        ? date.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit' })
+          + ' ' + date.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })
+        : '—';
+
+      const fmtPills = entry.formats
+        .filter(f => f.count > 0)
+        .map(f => `<span class="hfmt ${f.fmt}">${f.fmt} ${f.count}x (${pad(f.from)}→${pad(f.to)})</span>`)
+        .join('');
+
+      div.innerHTML = `
+        <div class="history-head">
+          <span class="history-badge">${entry.pais} · ${entry.frente} · ${entry.tipo}</span>
+          <span class="history-time">${dateStr}</span>
+        </div>
+        <div class="history-meta"><strong>${entry.nome}</strong> · ${entry.total} arquivo(s)</div>
+        <div class="history-formats">${fmtPills}</div>
+      `;
+      frag.appendChild(div);
+    });
+  }
+
+  list.innerHTML = '';
+  list.appendChild(frag);
+}
+
+function addHistoryEntry(pais, frente, tipo, nome, grouped, startNum, maxCount) {
+  const formats = FORMATOS.map(fmt => ({
+    fmt,
+    count: grouped[fmt].length,
+    from:  grouped[fmt].length > 0 ? startNum + 1 : 0,
+    to:    grouped[fmt].length > 0 ? startNum + grouped[fmt].length : 0
+  }));
+
+  const entry = {
+    ts:      Date.now(),
+    pais, frente, tipo, nome,
+    formats,
+    total: files.length
+  };
+
+  renameHistory.push(entry);
+  if (renameHistory.length > MAX_HISTORY) renameHistory.shift();
+}
+
+// ══════════════════════════════════════════════════════
+// PREVIEWS & BADGE DE PRÓXIMO NÚMERO
+// ══════════════════════════════════════════════════════
+function updatePreviews() {
+  const pais   = document.getElementById('selPais').value;
+  const frente = document.getElementById('selFrente').value;
+  const tipo   = document.getElementById('selTipo').value;
+  const nome   = document.getElementById('userName').value.trim().toUpperCase() || 'NOME';
+
+  FORMATOS.forEach(fmt => {
+    const el = document.getElementById('prev' + fmt);
+    if (!pais || !frente || !tipo) {
+      el.innerHTML = '<span class="muted">Preencha os campos...</span>';
+      return;
+    }
+    const num = counters[pais][frente] + 1;
+    el.textContent = `${pad(num)}_${tipo}_${frente}_${pais}_${fmt}_${nome}.ext`;
+  });
+
+  updateNextNumBadge();
+  renderCounters(); // atualiza lista quando país muda
+}
+
+function updateNextNumBadge() {
+  const pais   = document.getElementById('selPais').value;
+  const frente = document.getElementById('selFrente').value;
+  const badge  = document.getElementById('nextNumBadge');
+  const val    = document.getElementById('nextNumVal');
+
+  if (pais && frente) {
+    const next = counters[pais][frente] + 1;
+    val.textContent = pad(next);
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// ARQUIVOS — HELPERS
+// ══════════════════════════════════════════════════════
+function getExt(name)  { return name.split('.').pop().toLowerCase(); }
+
+function getIcon(ext) {
+  const map = { png:'🖼', jpg:'🖼', jpeg:'🖼', gif:'🎞', mp4:'🎬', mov:'🎬', svg:'✦', pdf:'📄', html:'🌐', zip:'📦' };
+  return map[ext] || '📎';
+}
+
+function buildName(origName, fmt, num) {
+  const pais   = document.getElementById('selPais').value;
+  const frente = document.getElementById('selFrente').value;
+  const tipo   = document.getElementById('selTipo').value;
+  const nome   = document.getElementById('userName').value.trim().toUpperCase() || 'NOME';
+  // Se há áudio carregado e o arquivo é imagem, a saída será MP4
+  const ext = (hasAnyAudio() && isImageExt(origName)) ? 'mp4' : getExt(origName);
+  return `${pad(num)}_${tipo}_${frente}_${pais}_${fmt}_${nome}.${ext}`;
+}
+
+// ══════════════════════════════════════════════════════
+// ARQUIVOS — GERENCIAMENTO
+// ══════════════════════════════════════════════════════
+function addFilesToGroup(newFiles, fmt) {
+  Array.from(newFiles).forEach(f => files.push({ file: f, group: fmt, newName: null }));
+  renderGroups();
+  checkAlignmentWarning();
+}
+
+function removeFile(idx) {
+  files.splice(idx, 1);
+  renderGroups();
+  checkAlignmentWarning();
+}
+
+function clearAll() {
+  files = [];
+  renderGroups();
+  checkAlignmentWarning();
+  document.getElementById('renameWarning').classList.remove('show');
+}
+
+// ══════════════════════════════════════════════════════
+// AVISO DE DESALINHAMENTO
+// ══════════════════════════════════════════════════════
+function checkAlignmentWarning() {
+  const grouped = groupByFormat();
+  const counts  = FORMATOS.map(f => grouped[f].length).filter(n => n > 0);
+  const allEqual = counts.length <= 1 || counts.every(n => n === counts[0]);
+
+  document.getElementById('renameWarning').classList.toggle('show', !allEqual && counts.length > 1);
+}
+
+// ══════════════════════════════════════════════════════
+// RENDER GRUPOS
+// ══════════════════════════════════════════════════════
+function groupByFormat() {
+  const grouped = { FEED: [], ST: [], TIKTOK: [] };
+  files.forEach((item, i) => grouped[item.group].push({ item, i }));
+  return grouped;
+}
+
+function renderGroups() {
+  const grouped = groupByFormat();
+
+  FORMATOS.forEach(fmt => {
+    const list   = grouped[fmt];
+    const grpEl  = document.getElementById('grp' + fmt);
+    const cntEl  = document.getElementById('cnt' + fmt);
+    const stEl   = document.getElementById('st'  + fmt);
+    const emEl   = document.getElementById('empty' + fmt);
+
+    cntEl.textContent = `${list.length} arquivo${list.length !== 1 ? 's' : ''}`;
+    stEl.textContent  = `${fmt}: ${list.length}`;
+    emEl.style.display = list.length ? 'none' : 'flex';
+
+    // Usa DocumentFragment para melhor performance
+    const frag = document.createDocumentFragment();
+    list.forEach(({ item, i }) => {
+      const ext = getExt(item.file.name);
+      const div = document.createElement('div');
+      div.className = 'file-chip' + (item.newName ? ' renamed' : '');
+      const willBeMp4 = hasAnyAudio() && isImageExt(item.file.name);
+      div.innerHTML = `
+        <div class="chip-icon ${ext}">${getIcon(ext)}</div>
+        <div class="chip-info">
+          <div class="chip-original" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</div>
+          <div class="chip-new ${item.newName ? '' : 'pending'}">${item.newName ? escapeHtml(item.newName) : '— aguardando —'}</div>
+        </div>
+        ${willBeMp4 ? '<span class="chip-mp4-badge">MP4 14s</span>' : ''}
+        <button class="chip-remove" onclick="removeFile(${i})" title="Remover">✕</button>
+      `;
+      frag.appendChild(div);
+    });
+
+    grpEl.innerHTML = '';
+    grpEl.appendChild(frag);
+  });
+
+  document.getElementById('btnDownload').disabled = !files.some(f => f.newName);
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ══════════════════════════════════════════════════════
+// RENOMEAR — LÓGICA CORRIGIDA
+// ══════════════════════════════════════════════════════
+function renameAll() {
+  const pais   = document.getElementById('selPais').value;
+  const frente = document.getElementById('selFrente').value;
+  const tipo   = document.getElementById('selTipo').value;
+  const nome   = document.getElementById('userName').value.trim().toUpperCase() || 'NOME';
+
+  if (!pais || !frente || !tipo) {
+    showToast('Preencha País, Frente e Tipo!', 'error');
+    return;
+  }
+  if (!files.length) {
+    showToast('Adicione arquivos nas colunas.', 'error');
+    return;
+  }
+
+  const grouped   = groupByFormat();
+  const counts    = FORMATOS.map(f => grouped[f].length);
+  const maxCount  = Math.max(...counts);
+  const startNum  = counters[pais][frente];
+
+  // ── Atribui números: mesmos índices recebem o mesmo número entre formatos
+  FORMATOS.forEach(fmt => {
+    grouped[fmt].forEach(({ item }, idx) => {
+      item.newName = buildName(item.file.name, fmt, startNum + idx + 1);
+    });
+  });
+
+  // Registra no histórico ANTES de avançar o contador
+  addHistoryEntry(pais, frente, tipo, nome, grouped, startNum, maxCount);
+
+  // Avança o contador pelo tamanho do maior grupo
+  counters[pais][frente] = startNum + maxCount;
+
+  scheduleCloudSave();
+  renderCounters();
+  renderGroups();
+  renderHistory();
+  updatePreviews();
+  updateNextNumBadge();
+  checkAlignmentWarning();
+
+  showToast(`✓ ${files.length} arquivo(s) renomeado(s)!`);
+}
+
+// ══════════════════════════════════════════════════════
+// DOWNLOAD
+// ══════════════════════════════════════════════════════
+async function downloadAll() {
+  const renamed = files.filter(f => f.newName);
+  if (!renamed.length) return;
+
+  const pais    = document.getElementById('selPais').value || 'FILES';
+  const grouped = { FEED: [], ST: [], TIKTOK: [] };
+  renamed.forEach(item => grouped[item.group].push(item));
+  const active  = FORMATOS.filter(f => grouped[f].length > 0);
+
+  // Conta quantos arquivos precisam de conversão MP4
+  const totalItems = renamed.length;
+  const mp4Count   = hasAnyAudio() ? renamed.filter(i => isImageExt(i.file.name)).length : 0;
+
+  if (!('showDirectoryPicker' in window)) {
+    showToast('Seu browser não suporta salvar pastas. Use Chrome ou Edge.', 'error');
+    return;
+  }
+
+  let rootDir;
+  try {
+    showToast('Escolha onde salvar...');
+    rootDir = await window.showDirectoryPicker({ mode: 'readwrite', startIn: 'downloads' });
+  } catch (err) {
+    if (err.name === 'AbortError') { showToast('Cancelado.', 'warn'); return; }
+    showToast('Erro: ' + err.message, 'error'); return;
+  }
+
+  // Se há MP4s para gerar, carrega ffmpeg e pré-carrega áudios
+  const overlay = document.getElementById('processingOverlay');
+  if (mp4Count > 0) {
+    overlay.classList.add('show');
+    setProcBar(0);
+    setProcSub('Preparando...');
+    setProcFile('');
+    try {
+      await ensureFFmpeg();
+      // Reseta cache de áudio para o novo lote
+      narData = null;
+      bgData  = null;
+      await preloadAudioData();
+    } catch(err) {
+      overlay.classList.remove('show');
+      showToast('Erro ao carregar conversor: ' + err.message, 'error');
+      return;
+    }
+  }
+
+  let saved   = 0;
+  let mp4Done = 0;
+
+  try {
+    const paisDir = await rootDir.getDirectoryHandle(pais, { create: true });
+
+    for (const fmt of active) {
+      const fmtDir = await paisDir.getDirectoryHandle(fmt, { create: true });
+
+      for (const item of grouped[fmt]) {
+        const needsMp4 = hasAnyAudio() && isImageExt(item.file.name);
+
+        if (needsMp4) {
+          mp4Done++;
+          setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
+          setProcFile(item.newName);
+          setProcBar(Math.round((mp4Done / mp4Count) * 100));
+
+          const mp4Blob = await convertImageToMp4(item.file);
+          const fh = await fmtDir.getFileHandle(item.newName, { create: true });
+          const wr = await fh.createWritable();
+          await wr.write(mp4Blob);
+          await wr.close();
+        } else {
+          const fh = await fmtDir.getFileHandle(item.newName, { create: true });
+          const wr = await fh.createWritable();
+          await wr.write(item.file);
+          await wr.close();
+        }
+        saved++;
+        showToast(`Salvando... ${saved}/${totalItems}`);
+      }
+    }
+
+    overlay.classList.remove('show');
+    showToast(`✓ ${saved} arquivo(s) salvos em ${pais}/${active.join(', ')}!`);
+
+  } catch (err) {
+    overlay.classList.remove('show');
+    if (err.name !== 'AbortError') {
+      showToast(`Erro ao salvar: ${err.message}`, 'error');
+      console.error(err);
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════════════════
+function showToast(msg, type = 'ok') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className   = 'toast' + (type === 'error' ? ' error' : type === 'warn' ? ' warn' : '');
+  void t.offsetWidth;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ══════════════════════════════════════════════════════
+// DRAG & DROP POR COLUNA
+// ══════════════════════════════════════════════════════
+FORMATOS.forEach(fmt => {
+  const dz  = document.getElementById('dz'  + fmt);
+  const inp = document.getElementById('in'  + fmt);
+
+  dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', e => { if (!dz.contains(e.relatedTarget)) dz.classList.remove('dragover'); });
+  dz.addEventListener('drop',      e => { e.preventDefault(); dz.classList.remove('dragover'); addFilesToGroup(e.dataTransfer.files, fmt); });
+  inp.addEventListener('change',   e => { addFilesToGroup(e.target.files, fmt); e.target.value = ''; });
+});
+
+// Atualiza previews e badge ao mudar selects
+['selPais', 'selFrente', 'selTipo'].forEach(id =>
+  document.getElementById(id).addEventListener('change', updatePreviews)
+);
+document.getElementById('userName').addEventListener('input', updatePreviews);
+
+// ══════════════════════════════════════════════════════
+// ÁUDIO GLOBAL
+// ══════════════════════════════════════════════════════
+let audioFile   = null;   // narração
+let bgAudioFile = null;   // fundo
+let bgVolume    = 0.30;   // 0.0–1.0
+let ffmpegInst  = null;
+let ffmpegReady = false;
+
+function hasAnyAudio() { return !!(audioFile || bgAudioFile); }
+
+function isImageExt(name) {
+  return ['png','jpg','jpeg','webp'].includes(getExt(name));
+}
+
+function readAudioDuration(file, cb) {
+  const ac = new AudioContext();
+  const fr = new FileReader();
+  fr.onload = async ev => {
+    try {
+      const buf = await ac.decodeAudioData(ev.target.result);
+      const m = Math.floor(buf.duration / 60);
+      const s = Math.floor(buf.duration % 60).toString().padStart(2,'0');
+      cb(m + ':' + s);
+      ac.close();
+    } catch { cb('Duração desconhecida'); }
+  };
+  fr.readAsArrayBuffer(file);
+}
+
+// ── Narração ──────────────────────────────────────────
+function narDragOver(e)  { e.preventDefault(); document.getElementById('narEmptyZone').classList.add('dragover'); }
+function narDragLeave(e) { document.getElementById('narEmptyZone').classList.remove('dragover'); }
+function narDrop(e) {
+  e.preventDefault();
+  document.getElementById('narEmptyZone').classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f) narSelected(f);
+}
+
+function narSelected(file) {
+  if (!file || !file.type.startsWith('audio/')) { showToast('Selecione um arquivo de áudio válido.', 'error'); return; }
+  audioFile = file;
+  document.getElementById('narFileName').textContent = file.name;
+  document.getElementById('narFileMeta').textContent = 'Calculando duração...';
+  document.getElementById('narEmptyZone').style.display = 'none';
+  document.getElementById('narLoadedRow').style.display = 'flex';
+  readAudioDuration(file, dur => {
+    document.getElementById('narFileMeta').textContent = dur + ' · MP4 14s';
+  });
+  renderGroups();
+}
+
+function clearNarration() {
+  audioFile = null;
+  document.getElementById('narLoadedRow').style.display = 'none';
+  document.getElementById('narEmptyZone').style.display = '';
+  document.getElementById('inNarMain').value = '';
+  renderGroups();
+}
+
+// ── Fundo ─────────────────────────────────────────────
+function bgDragOver(e)  { e.preventDefault(); document.getElementById('bgEmptyZone').classList.add('dragover'); }
+function bgDragLeave(e) { document.getElementById('bgEmptyZone').classList.remove('dragover'); }
+function bgDrop(e) {
+  e.preventDefault();
+  document.getElementById('bgEmptyZone').classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f) bgSelected(f);
+}
+
+function bgSelected(file) {
+  if (!file || !file.type.startsWith('audio/')) { showToast('Selecione um arquivo de áudio válido.', 'error'); return; }
+  bgAudioFile = file;
+  document.getElementById('bgFileName').textContent = file.name;
+  document.getElementById('bgFileMeta').textContent = 'Calculando duração...';
+  document.getElementById('bgEmptyZone').style.display = 'none';
+  document.getElementById('bgLoadedRow').style.display = 'flex';
+  document.getElementById('bgVolRow').style.display = 'flex';
+  readAudioDuration(file, dur => {
+    document.getElementById('bgFileMeta').textContent = dur;
+  });
+  renderGroups();
+}
+
+function clearBg() {
+  bgAudioFile = null;
+  document.getElementById('bgLoadedRow').style.display = 'none';
+  document.getElementById('bgEmptyZone').style.display = '';
+  document.getElementById('bgVolRow').style.display = 'none';
+  document.getElementById('inBgMain').value = '';
+  renderGroups();
+}
+
+function setBgVolume(val) {
+  bgVolume = parseInt(val) / 100;
+  document.getElementById('bgVolVal').textContent = val + '%';
+}
+
+// ══════════════════════════════════════════════════════
+// FFMPEG — LOAD
+// ══════════════════════════════════════════════════════
+// FFMPEG — LOAD
+// ══════════════════════════════════════════════════════
+async function ensureFFmpeg() {
+  if (ffmpegReady) return;
+
+  if (typeof SharedArrayBuffer === 'undefined') {
+    throw new Error('SharedArrayBuffer não disponível. Verifique se o site está com os headers COOP/COEP corretos no Netlify.');
+  }
+
+  setProcSub('Baixando conversor (primeira vez ~20 MB)...');
+  const { createFFmpeg } = FFmpeg;
+  ffmpegInst = createFFmpeg({
+    log: false,
+    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+  });
+  await ffmpegInst.load();
+  ffmpegReady = true;
+}
+
+// ══════════════════════════════════════════════════════
+// FFMPEG — CONVERTE UMA IMAGEM EM MP4 DE 14s
+// Executa sempre em série (nunca em paralelo)
+// ══════════════════════════════════════════════════════
+let narData = null;  // Uint8Array da narração, carregada uma vez
+let bgData  = null;  // Uint8Array do fundo, carregada uma vez
+
+async function preloadAudioData() {
+  const { fetchFile } = FFmpeg;
+  if (audioFile && !narData)  narData = await fetchFile(audioFile);
+  if (bgAudioFile && !bgData) bgData  = await fetchFile(bgAudioFile);
+}
+
+async function convertImageToMp4(imgFile) {
+  const { fetchFile } = FFmpeg;
+
+  // Limpa arquivos anteriores do FS virtual para evitar conflitos
+  for (const f of ['img.input', 'nar.audio', 'bg.audio', 'out.mp4']) {
+    try { ffmpegInst.FS('unlink', f); } catch(e) {}
+  }
+
+  // Escreve imagem
+  ffmpegInst.FS('writeFile', 'img.input', await fetchFile(imgFile));
+
+  // Escreve áudios (reusa dados já carregados)
+  if (narData)  ffmpegInst.FS('writeFile', 'nar.audio', narData);
+  if (bgData)   ffmpegInst.FS('writeFile', 'bg.audio',  bgData);
+
+  // ── Monta o comando ──────────────────────────────────
+  // Estratégia: pre-processar áudio com -t 14 para garantir duração exata,
+  // depois combinar com a imagem. Sem -shortest para evitar exit(0).
+  const DURATION = '14';
+  let args;
+
+  if (narData && bgData) {
+    // Narração + fundo: trunca ambos em 14s, mixa com volume do fundo
+    args = [
+      '-loop', '1', '-r', '1', '-i', 'img.input',
+      '-t', DURATION, '-i', 'nar.audio',
+      '-t', DURATION, '-i', 'bg.audio',
+      '-filter_complex',
+        `[2:a]volume=${bgVolume.toFixed(2)}[bg];[1:a][bg]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
+      '-map', '0:v',
+      '-map', '[aout]',
+      '-vf',      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-c:v',     'libx264',
+      '-tune',    'stillimage',
+      '-preset',  'ultrafast',
+      '-c:a',     'aac',
+      '-b:a',     '192k',
+      '-pix_fmt', 'yuv420p',
+      '-t',       DURATION,
+      '-movflags','+faststart',
+      '-y',       'out.mp4'
+    ];
+  } else if (narData) {
+    // Só narração — trunca em 14s
+    args = [
+      '-loop', '1', '-r', '1', '-i', 'img.input',
+      '-t', DURATION, '-i', 'nar.audio',
+      '-map', '0:v',
+      '-map', '1:a',
+      '-vf',      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-c:v',     'libx264',
+      '-tune',    'stillimage',
+      '-preset',  'ultrafast',
+      '-c:a',     'aac',
+      '-b:a',     '192k',
+      '-pix_fmt', 'yuv420p',
+      '-t',       DURATION,
+      '-movflags','+faststart',
+      '-y',       'out.mp4'
+    ];
+  } else if (bgData) {
+    // Só fundo com volume ajustado
+    args = [
+      '-loop', '1', '-r', '1', '-i', 'img.input',
+      '-t', DURATION, '-i', 'bg.audio',
+      '-filter_complex', `[1:a]volume=${bgVolume.toFixed(2)}[aout]`,
+      '-map', '0:v',
+      '-map', '[aout]',
+      '-vf',      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-c:v',     'libx264',
+      '-tune',    'stillimage',
+      '-preset',  'ultrafast',
+      '-c:a',     'aac',
+      '-b:a',     '192k',
+      '-pix_fmt', 'yuv420p',
+      '-t',       DURATION,
+      '-movflags','+faststart',
+      '-y',       'out.mp4'
+    ];
+  } else {
+    // Sem áudio — só vídeo
+    args = [
+      '-loop', '1', '-r', '1', '-i', 'img.input',
+      '-vf',      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-c:v',     'libx264',
+      '-tune',    'stillimage',
+      '-preset',  'ultrafast',
+      '-pix_fmt', 'yuv420p',
+      '-t',       DURATION,
+      '-movflags','+faststart',
+      '-y',       'out.mp4'
+    ];
+  }
+
+  await ffmpegInst.run(...args);
+
+  const data = ffmpegInst.FS('readFile', 'out.mp4');
+
+  // Limpa FS
+  for (const f of ['img.input', 'nar.audio', 'bg.audio', 'out.mp4']) {
+    try { ffmpegInst.FS('unlink', f); } catch(e) {}
+  }
+
+  return new Blob([data.buffer], { type: 'video/mp4' });
+}
+
+// Overlay helpers
+function setProcSub(t)  { document.getElementById('procSub').textContent  = t; }
+function setProcFile(t) { document.getElementById('procFile').textContent = t; }
+function setProcBar(pct){ document.getElementById('procBarFill').style.width = pct + '%'; }
+
+</script>
+</body>
+</html>
