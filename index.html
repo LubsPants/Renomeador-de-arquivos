@@ -699,8 +699,8 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- ffmpeg.wasm v0.11 com core compatível -->
-<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<!-- ffmpeg.wasm v0.12 - não precisa de SharedArrayBuffer -->
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
 
 <!-- Firebase v9 compat -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -1445,135 +1445,100 @@ function setBgVolume(val) {
 // ══════════════════════════════════════════════════════
 async function ensureFFmpeg() {
   if (ffmpegReady) return;
-
-  if (typeof SharedArrayBuffer === 'undefined') {
-    throw new Error('SharedArrayBuffer não disponível. Verifique se o site está com os headers COOP/COEP corretos no Netlify.');
-  }
-
   setProcSub('Baixando conversor (primeira vez ~20 MB)...');
-  const { createFFmpeg } = FFmpeg;
-  ffmpegInst = createFFmpeg({
-    log: false,
-    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+
+  // v0.12 UMD expõe window.FFmpegWASM
+  const { FFmpeg: FF, toBlobURL } = window.FFmpegWASM;
+  ffmpegInst = new FF();
+
+  const BASE = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+  await ffmpegInst.load({
+    coreURL: await toBlobURL(BASE + '/ffmpeg-core.js',   'text/javascript'),
+    wasmURL: await toBlobURL(BASE + '/ffmpeg-core.wasm', 'application/wasm'),
   });
-  await ffmpegInst.load();
   ffmpegReady = true;
 }
 
 // ══════════════════════════════════════════════════════
-// FFMPEG — CONVERTE UMA IMAGEM EM MP4 DE 14s
-// Executa sempre em série (nunca em paralelo)
+// FFMPEG — CONVERTE UMA IMAGEM EM MP4 DE 14s (API v0.12)
 // ══════════════════════════════════════════════════════
-let narData = null;  // Uint8Array da narração, carregada uma vez
-let bgData  = null;  // Uint8Array do fundo, carregada uma vez
+let narData = null;
+let bgData  = null;
+
+async function fileToUint8(file) {
+  const buf = await file.arrayBuffer();
+  return new Uint8Array(buf);
+}
 
 async function preloadAudioData() {
-  const { fetchFile } = FFmpeg;
-  if (audioFile && !narData)  narData = await fetchFile(audioFile);
-  if (bgAudioFile && !bgData) bgData  = await fetchFile(bgAudioFile);
+  if (audioFile   && !narData) narData = await fileToUint8(audioFile);
+  if (bgAudioFile && !bgData)  bgData  = await fileToUint8(bgAudioFile);
 }
 
 async function convertImageToMp4(imgFile) {
-  const { fetchFile } = FFmpeg;
+  const imgData = await fileToUint8(imgFile);
+  const DURATION = '14';
 
-  // Limpa arquivos anteriores do FS virtual para evitar conflitos
+  // Limpa arquivos anteriores
   for (const f of ['img.input', 'nar.audio', 'bg.audio', 'out.mp4']) {
-    try { ffmpegInst.FS('unlink', f); } catch(e) {}
+    try { await ffmpegInst.deleteFile(f); } catch(e) {}
   }
 
-  // Escreve imagem
-  ffmpegInst.FS('writeFile', 'img.input', await fetchFile(imgFile));
+  await ffmpegInst.writeFile('img.input', imgData);
+  if (narData) await ffmpegInst.writeFile('nar.audio', narData);
+  if (bgData)  await ffmpegInst.writeFile('bg.audio',  bgData);
 
-  // Escreve áudios (reusa dados já carregados)
-  if (narData)  ffmpegInst.FS('writeFile', 'nar.audio', narData);
-  if (bgData)   ffmpegInst.FS('writeFile', 'bg.audio',  bgData);
-
-  // ── Monta o comando ──────────────────────────────────
-  // Estratégia: pre-processar áudio com -t 14 para garantir duração exata,
-  // depois combinar com a imagem. Sem -shortest para evitar exit(0).
-  const DURATION = '14';
   let args;
-
   if (narData && bgData) {
-    // Narração + fundo: trunca ambos em 14s, mixa com volume do fundo
     args = [
       '-loop', '1', '-r', '1', '-i', 'img.input',
       '-t', DURATION, '-i', 'nar.audio',
       '-t', DURATION, '-i', 'bg.audio',
       '-filter_complex',
         `[2:a]volume=${bgVolume.toFixed(2)}[bg];[1:a][bg]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
-      '-map', '0:v',
-      '-map', '[aout]',
-      '-vf',      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-      '-c:v',     'libx264',
-      '-tune',    'stillimage',
-      '-preset',  'ultrafast',
-      '-c:a',     'aac',
-      '-b:a',     '192k',
-      '-pix_fmt', 'yuv420p',
-      '-t',       DURATION,
-      '-movflags','+faststart',
-      '-y',       'out.mp4'
+      '-map', '0:v', '-map', '[aout]',
+      '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-c:v', 'libx264', '-tune', 'stillimage', '-preset', 'ultrafast',
+      '-c:a', 'aac', '-b:a', '192k', '-pix_fmt', 'yuv420p',
+      '-t', DURATION, '-movflags', '+faststart', '-y', 'out.mp4'
     ];
   } else if (narData) {
-    // Só narração — trunca em 14s
     args = [
       '-loop', '1', '-r', '1', '-i', 'img.input',
       '-t', DURATION, '-i', 'nar.audio',
-      '-map', '0:v',
-      '-map', '1:a',
-      '-vf',      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-      '-c:v',     'libx264',
-      '-tune',    'stillimage',
-      '-preset',  'ultrafast',
-      '-c:a',     'aac',
-      '-b:a',     '192k',
-      '-pix_fmt', 'yuv420p',
-      '-t',       DURATION,
-      '-movflags','+faststart',
-      '-y',       'out.mp4'
+      '-map', '0:v', '-map', '1:a',
+      '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-c:v', 'libx264', '-tune', 'stillimage', '-preset', 'ultrafast',
+      '-c:a', 'aac', '-b:a', '192k', '-pix_fmt', 'yuv420p',
+      '-t', DURATION, '-movflags', '+faststart', '-y', 'out.mp4'
     ];
   } else if (bgData) {
-    // Só fundo com volume ajustado
     args = [
       '-loop', '1', '-r', '1', '-i', 'img.input',
       '-t', DURATION, '-i', 'bg.audio',
       '-filter_complex', `[1:a]volume=${bgVolume.toFixed(2)}[aout]`,
-      '-map', '0:v',
-      '-map', '[aout]',
-      '-vf',      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-      '-c:v',     'libx264',
-      '-tune',    'stillimage',
-      '-preset',  'ultrafast',
-      '-c:a',     'aac',
-      '-b:a',     '192k',
-      '-pix_fmt', 'yuv420p',
-      '-t',       DURATION,
-      '-movflags','+faststart',
-      '-y',       'out.mp4'
+      '-map', '0:v', '-map', '[aout]',
+      '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-c:v', 'libx264', '-tune', 'stillimage', '-preset', 'ultrafast',
+      '-c:a', 'aac', '-b:a', '192k', '-pix_fmt', 'yuv420p',
+      '-t', DURATION, '-movflags', '+faststart', '-y', 'out.mp4'
     ];
   } else {
-    // Sem áudio — só vídeo
     args = [
       '-loop', '1', '-r', '1', '-i', 'img.input',
-      '-vf',      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-      '-c:v',     'libx264',
-      '-tune',    'stillimage',
-      '-preset',  'ultrafast',
-      '-pix_fmt', 'yuv420p',
-      '-t',       DURATION,
-      '-movflags','+faststart',
-      '-y',       'out.mp4'
+      '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-c:v', 'libx264', '-tune', 'stillimage', '-preset', 'ultrafast',
+      '-pix_fmt', 'yuv420p', '-t', DURATION,
+      '-movflags', '+faststart', '-y', 'out.mp4'
     ];
   }
 
-  await ffmpegInst.run(...args);
+  await ffmpegInst.exec(args);
 
-  const data = ffmpegInst.FS('readFile', 'out.mp4');
+  const data = await ffmpegInst.readFile('out.mp4');
 
-  // Limpa FS
   for (const f of ['img.input', 'nar.audio', 'bg.audio', 'out.mp4']) {
-    try { ffmpegInst.FS('unlink', f); } catch(e) {}
+    try { await ffmpegInst.deleteFile(f); } catch(e) {}
   }
 
   return new Blob([data.buffer], { type: 'video/mp4' });
