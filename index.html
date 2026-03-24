@@ -703,7 +703,8 @@
 <div class="toast" id="toast"></div>
 
 <!-- MODAL DE APROVAÇÃO -->
-<!-- sem ffmpeg: usa MediaRecorder nativo -->
+<!-- WebM writer: monta WebM em memória sem gravar em tempo real -->
+<script src="https://cdn.jsdelivr.net/npm/webm-writer@0.3.0/WebMWriter.js"></script>
 
 <!-- Firebase v9 compat -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -1246,7 +1247,6 @@ async function downloadAll() {
     showToast('Erro: ' + err.message, 'error'); return;
   }
 
-  // Se há MP4s para gerar, carrega ffmpeg e pré-carrega áudios
   const overlay = document.getElementById('processingOverlay');
   if (mp4Count > 0) {
     overlay.classList.add('show');
@@ -1261,35 +1261,49 @@ async function downloadAll() {
   try {
     const paisDir = await rootDir.getDirectoryHandle(pais, { create: true });
 
+    // Cria todas as pastas primeiro
+    const fmtDirs = {};
     for (const fmt of active) {
-      const fmtDir = await paisDir.getDirectoryHandle(fmt, { create: true });
+      fmtDirs[fmt] = await paisDir.getDirectoryHandle(fmt, { create: true });
+    }
 
-      for (const item of grouped[fmt]) {
-        const needsConvert = hasAnyAudio() && (isImageExt(item.file.name) || isVideoExt(item.file.name));
+    // Separa arquivos que precisam de conversão dos que não precisam
+    const allItems = active.flatMap(fmt => grouped[fmt].map(item => ({ item, fmt })));
+    const toConvert = allItems.filter(({ item }) =>
+      hasAnyAudio() && (isImageExt(item.file.name) || isVideoExt(item.file.name))
+    );
+    const toCopy = allItems.filter(({ item }) =>
+      !(hasAnyAudio() && (isImageExt(item.file.name) || isVideoExt(item.file.name)))
+    );
 
-        if (needsConvert) {
-          mp4Done++;
-          setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
-          setProcFile(item.newName);
-          setProcBar(Math.round((mp4Done / mp4Count) * 100));
+    // Salva arquivos que não precisam de conversão imediatamente (rápido)
+    for (const { item, fmt } of toCopy) {
+      const fh = await fmtDirs[fmt].getFileHandle(item.newName, { create: true });
+      const wr = await fh.createWritable();
+      await wr.write(item.file);
+      await wr.close();
+      saved++;
+      showToast(`Salvando... ${saved}/${totalItems}`);
+    }
 
-          const outBlob = isImageExt(item.file.name)
-            ? await convertImageToMp4(item.file)
-            : await convertVideoToMp4(item.file);
+    // Converte todos em paralelo (WebMWriter é CPU-only, sem tempo real)
+    const blobs = await Promise.all(toConvert.map(({ item }) =>
+      isImageExt(item.file.name)
+        ? convertImageToMp4(item.file)
+        : convertVideoToMp4(item.file)
+    ));
 
-          const fh = await fmtDir.getFileHandle(item.newName, { create: true });
-          const wr = await fh.createWritable();
-          await wr.write(outBlob);
-          await wr.close();
-        } else {
-          const fh = await fmtDir.getFileHandle(item.newName, { create: true });
-          const wr = await fh.createWritable();
-          await wr.write(item.file);
-          await wr.close();
-        }
-        saved++;
-        showToast(`Salvando... ${saved}/${totalItems}`);
-      }
+    for (let j = 0; j < toConvert.length; j++) {
+      const { item, fmt } = toConvert[j];
+      const fh = await fmtDirs[fmt].getFileHandle(item.newName, { create: true });
+      const wr = await fh.createWritable();
+      await wr.write(blobs[j]);
+      await wr.close();
+      mp4Done++;
+      saved++;
+      setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
+      setProcBar(Math.round((mp4Done / mp4Count) * 100));
+      showToast(`Salvando... ${saved}/${totalItems}`);
     }
 
     overlay.classList.remove('show');
@@ -1474,261 +1488,182 @@ function loadAudioBuffer(file, audioCtx) {
   });
 }
 
+// ══════════════════════════════════════════════════════
+// CONVERSÃO RÁPIDA — WebMWriter (sem tempo real)
+// ══════════════════════════════════════════════════════
+
+// Pré-renderiza o mix de áudio completo num AudioBuffer offline
+async function buildAudioBuffer(durationSecs) {
+  if (!audioFile && !bgAudioFile) return null;
+  const SR = 44100;
+
+  const tmpCtx = new AudioContext();
+  const narBuf = audioFile   ? await loadAudioBuffer(audioFile,   tmpCtx).catch(() => null) : null;
+  const bgBuf  = bgAudioFile ? await loadAudioBuffer(bgAudioFile, tmpCtx).catch(() => null) : null;
+  await tmpCtx.close();
+  if (!narBuf && !bgBuf) return null;
+
+  const frames = Math.ceil(SR * durationSecs);
+  const off    = new OfflineAudioContext(2, frames, SR);
+
+  if (narBuf) {
+    const src = off.createBufferSource();
+    const g   = off.createGain();
+    src.buffer = narBuf; g.gain.value = 1.0;
+    src.connect(g); g.connect(off.destination); src.start(0);
+  }
+  if (bgBuf) {
+    const src = off.createBufferSource();
+    const g   = off.createGain();
+    src.buffer = bgBuf; g.gain.value = bgVolume;
+    src.connect(g); g.connect(off.destination); src.start(0);
+  }
+  return off.startRendering();
+}
+
+// Converte AudioBuffer → array de chunks PCM para WebMWriter
+function audioBufferToChunks(audioBuffer, chunkDurationSecs, totalDurationSecs) {
+  const SR       = audioBuffer.sampleRate;
+  const chunkSz  = Math.floor(SR * chunkDurationSecs);
+  const totalSz  = Math.floor(SR * totalDurationSecs);
+  const L        = audioBuffer.getChannelData(0);
+  const R        = audioBuffer.numberOfChannels > 1
+                   ? audioBuffer.getChannelData(1)
+                   : audioBuffer.getChannelData(0);
+  const chunks   = [];
+  for (let i = 0; i < totalSz; i += chunkSz) {
+    const end  = Math.min(i + chunkSz, totalSz);
+    const size = end - i;
+    const buf  = new ArrayBuffer(size * 4);
+    const view = new DataView(buf);
+    for (let j = 0; j < size; j++) {
+      // Interleave L/R int16
+      const li = Math.max(-1, Math.min(1, L[i + j] || 0));
+      const ri = Math.max(-1, Math.min(1, R[i + j] || 0));
+      view.setInt16(j * 4,     Math.round(li * 32767), true);
+      view.setInt16(j * 4 + 2, Math.round(ri * 32767), true);
+    }
+    chunks.push(buf);
+  }
+  return chunks;
+}
+
 async function convertImageToMp4(imgFile) {
-  const DURATION  = 14;
-  const FPS       = 30;
-  const SAMPLERATE = 44100;
+  const DURATION = 14;
+  const FPS      = 30;
 
   const img = await loadImage(imgFile);
-  const W = img.naturalWidth  % 2 === 0 ? img.naturalWidth  : img.naturalWidth  - 1;
-  const H = img.naturalHeight % 2 === 0 ? img.naturalHeight : img.naturalHeight - 1;
+  const W   = img.naturalWidth  % 2 === 0 ? img.naturalWidth  : img.naturalWidth  - 1;
+  const H   = img.naturalHeight % 2 === 0 ? img.naturalHeight : img.naturalHeight - 1;
 
-  // ── 1. Pré-renderiza o áudio inteiro offline ──────────────
-  // OfflineAudioContext renderiza tudo de uma vez, sem depender
-  // de timing ou estado suspended — garante áudio para todos os browsers
-  let mixedAudioBuffer = null;
+  // Monta o áudio offline (rápido, sem tempo real)
+  const audioBuf = await buildAudioBuffer(DURATION);
 
-  if (audioFile || bgAudioFile) {
-    const tmpCtx = new AudioContext();
-    const narBuf = audioFile   ? await loadAudioBuffer(audioFile,   tmpCtx).catch(() => null) : null;
-    const bgBuf  = bgAudioFile ? await loadAudioBuffer(bgAudioFile, tmpCtx).catch(() => null) : null;
-    await tmpCtx.close();
+  // Configura WebMWriter
+  const writer = new WebMWriter({
+    quality:    0.95,
+    fileWriter: null,
+    fd:         null,
+    frameDuration: 1000 / FPS,
+    frameRate:  FPS,
+    ...(audioBuf ? {
+      audioChannels:  2,
+      audioSampleRate: audioBuf.sampleRate,
+      audioBitrate:   128000,
+    } : {})
+  });
 
-    if (narBuf || bgBuf) {
-      const offlineCtx = new OfflineAudioContext(
-        2,                          // stereo
-        SAMPLERATE * DURATION,      // total de samples
-        SAMPLERATE
-      );
-
-      if (narBuf) {
-        const src  = offlineCtx.createBufferSource();
-        const gain = offlineCtx.createGain();
-        src.buffer = narBuf;
-        gain.gain.value = 1.0;
-        src.connect(gain);
-        gain.connect(offlineCtx.destination);
-        src.start(0);
-      }
-
-      if (bgBuf) {
-        const src  = offlineCtx.createBufferSource();
-        const gain = offlineCtx.createGain();
-        src.buffer = bgBuf;
-        gain.gain.value = bgVolume;
-        src.connect(gain);
-        gain.connect(offlineCtx.destination);
-        src.start(0);
-      }
-
-      mixedAudioBuffer = await offlineCtx.startRendering();
-    }
-  }
-
-  // ── 2. Configura canvas + stream de vídeo ────────────────
+  // Desenha a imagem num canvas e captura frames
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0, W, H);
 
-  const mimeType = ['video/webm;codecs=vp9,opus',
-                    'video/webm;codecs=vp8,opus',
-                    'video/webm'].find(m => MediaRecorder.isTypeSupported(m))
-                 || 'video/webm';
+  const totalFrames    = Math.ceil(DURATION * FPS);
+  const frameDurSecs   = 1 / FPS;
 
-  const stream = canvas.captureStream(FPS);
+  // Prepara chunks de áudio se houver
+  const audioChunks = audioBuf
+    ? audioBufferToChunks(audioBuf, frameDurSecs, DURATION)
+    : null;
 
-  // ── 3. Injeta áudio pré-renderizado no stream ─────────────
-  if (mixedAudioBuffer) {
-    const playCtx = new AudioContext({ sampleRate: SAMPLERATE });
-
-    // resume imediato — já há interação do usuário (clique no botão salvar)
-    if (playCtx.state === 'suspended') await playCtx.resume();
-
-    const src  = playCtx.createBufferSource();
-    const dest = playCtx.createMediaStreamDestination();
-    src.buffer = mixedAudioBuffer;
-    src.connect(dest);
-    src.start(0);
-
-    dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
-
-    // Aguarda o AudioContext estabilizar antes de iniciar a gravação
-    await new Promise(r => setTimeout(r, 250));
-
-    return new Promise((resolve, reject) => {
-      const chunks   = [];
-      const recorder = new MediaRecorder(stream, { mimeType });
-
-      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-      recorder.onstop = () => {
-        playCtx.close();
-        stream.getTracks().forEach(t => t.stop());
-        resolve(new Blob(chunks, { type: mimeType }));
-      };
-      recorder.onerror = e => {
-        playCtx.close();
-        reject(e.error || new Error('MediaRecorder error'));
-      };
-
-      recorder.start(100);
-      setTimeout(() => { try { recorder.stop(); } catch(e) {} }, DURATION * 1000);
-    });
-
-  } else {
-    // Sem áudio — grava só o vídeo
-    return new Promise((resolve, reject) => {
-      const chunks   = [];
-      const vidMime  = ['video/webm;codecs=vp9',
-                        'video/webm;codecs=vp8',
-                        'video/webm'].find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
-      const recorder = new MediaRecorder(stream, { mimeType: vidMime });
-
-      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-      recorder.onstop = () => {
-        stream.getTracks().forEach(t => t.stop());
-        resolve(new Blob(chunks, { type: vidMime }));
-      };
-      recorder.onerror = e => { reject(e.error || new Error('MediaRecorder error')); };
-
-      recorder.start(100);
-      setTimeout(() => { try { recorder.stop(); } catch(e) {} }, DURATION * 1000);
-    });
+  // Adiciona cada frame (imagem estática = mesmo canvas para todos)
+  for (let f = 0; f < totalFrames; f++) {
+    writer.addFrame(canvas, audioChunks ? audioChunks[f] : undefined);
   }
+
+  const blob = await writer.complete();
+  return blob;
 }
 
 async function convertVideoToMp4(videoFile) {
-  const SAMPLERATE = 44100;
+  const FPS = 30;
 
-  // ── 1. Pré-renderiza áudio offline (mesmo sistema do convertImageToMp4) ──
-  let mixedAudioBuffer = null;
+  // Carrega o vídeo e descobre duração
+  const duration = await getVideoDuration(videoFile);
+  const audioBuf = await buildAudioBuffer(duration);
 
-  if (audioFile || bgAudioFile) {
-    const tmpCtx = new AudioContext();
-    const narBuf = audioFile   ? await loadAudioBuffer(audioFile,   tmpCtx).catch(() => null) : null;
-    const bgBuf  = bgAudioFile ? await loadAudioBuffer(bgAudioFile, tmpCtx).catch(() => null) : null;
-    await tmpCtx.close();
-
-    if (narBuf || bgBuf) {
-      // Descobre duração do vídeo para renderizar o áudio no tamanho certo
-      const vidDuration = await getVideoDuration(videoFile);
-      const duration    = Math.max(vidDuration, 1);
-
-      const offlineCtx = new OfflineAudioContext(2, Math.ceil(SAMPLERATE * duration), SAMPLERATE);
-
-      if (narBuf) {
-        const src  = offlineCtx.createBufferSource();
-        const gain = offlineCtx.createGain();
-        src.buffer = narBuf;
-        gain.gain.value = 1.0;
-        src.connect(gain);
-        gain.connect(offlineCtx.destination);
-        src.start(0);
-      }
-      if (bgBuf) {
-        const src  = offlineCtx.createBufferSource();
-        const gain = offlineCtx.createGain();
-        src.buffer = bgBuf;
-        gain.gain.value = bgVolume;
-        src.connect(gain);
-        gain.connect(offlineCtx.destination);
-        src.start(0);
-      }
-
-      mixedAudioBuffer = await offlineCtx.startRendering();
-    }
-  }
-
-  // ── 2. Carrega o vídeo original num <video> ──────────────
-  const videoEl   = document.createElement('video');
-  videoEl.muted   = true; // muted para captureStream funcionar sem restrições
-  videoEl.src     = URL.createObjectURL(videoFile);
-  videoEl.loop    = false;
+  // Carrega o vídeo num elemento para extrair frames
+  const videoEl = document.createElement('video');
+  videoEl.src   = URL.createObjectURL(videoFile);
+  videoEl.muted = true;
   videoEl.playsInline = true;
-
-  await new Promise((res, rej) => {
-    videoEl.onloadedmetadata = res;
-    videoEl.onerror = rej;
-  });
+  await new Promise((res, rej) => { videoEl.onloadedmetadata = res; videoEl.onerror = rej; });
 
   const W = videoEl.videoWidth  % 2 === 0 ? videoEl.videoWidth  : videoEl.videoWidth  - 1;
   const H = videoEl.videoHeight % 2 === 0 ? videoEl.videoHeight : videoEl.videoHeight - 1;
-  const duration = videoEl.duration;
 
-  // ── 3. Canvas que espelha o vídeo frame a frame ──────────
+  const writer = new WebMWriter({
+    quality:   0.95,
+    frameRate: FPS,
+    frameDuration: 1000 / FPS,
+    ...(audioBuf ? {
+      audioChannels:   2,
+      audioSampleRate: audioBuf.sampleRate,
+      audioBitrate:    128000,
+    } : {})
+  });
+
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx    = canvas.getContext('2d');
 
-  const mimeType = ['video/webm;codecs=vp9,opus',
-                    'video/webm;codecs=vp8,opus',
-                    'video/webm'].find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+  const totalFrames  = Math.ceil(duration * FPS);
+  const frameDurSecs = 1 / FPS;
+  const audioChunks  = audioBuf
+    ? audioBufferToChunks(audioBuf, frameDurSecs, duration)
+    : null;
 
-  const stream = canvas.captureStream(30);
-
-  // ── 4. Injeta áudio pré-renderizado ──────────────────────
-  let playCtx = null;
-  if (mixedAudioBuffer) {
-    playCtx = new AudioContext({ sampleRate: SAMPLERATE });
-    if (playCtx.state === 'suspended') await playCtx.resume();
-
-    const src  = playCtx.createBufferSource();
-    const dest = playCtx.createMediaStreamDestination();
-    src.buffer = mixedAudioBuffer;
-    src.connect(dest);
-    src.start(0);
-    dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
-
-    await new Promise(r => setTimeout(r, 250));
+  // Extrai frames do vídeo buscando cada timestamp
+  for (let f = 0; f < totalFrames; f++) {
+    const t = f * frameDurSecs;
+    await seekVideoTo(videoEl, t);
+    ctx.drawImage(videoEl, 0, 0, W, H);
+    writer.addFrame(canvas, audioChunks ? audioChunks[f] : undefined);
   }
 
-  // ── 5. Grava enquanto o vídeo toca ───────────────────────
-  return new Promise((resolve, reject) => {
-    const chunks   = [];
-    const recorder = new MediaRecorder(stream, { mimeType });
+  URL.revokeObjectURL(videoEl.src);
+  const blob = await writer.complete();
+  return blob;
+}
 
-    recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-    recorder.onstop = () => {
-      URL.revokeObjectURL(videoEl.src);
-      if (playCtx) playCtx.close();
-      stream.getTracks().forEach(t => t.stop());
-      resolve(new Blob(chunks, { type: mimeType }));
-    };
-    recorder.onerror = e => {
-      URL.revokeObjectURL(videoEl.src);
-      if (playCtx) playCtx.close();
-      reject(e.error || new Error('MediaRecorder error'));
-    };
-
-    // Loop de renderização do vídeo no canvas
-    let rafId = null;
-    function drawFrame() {
-      if (videoEl.paused || videoEl.ended) return;
-      ctx.drawImage(videoEl, 0, 0, W, H);
-      rafId = requestAnimationFrame(drawFrame);
-    }
-
-    videoEl.onended = () => {
-      cancelAnimationFrame(rafId);
-      try { recorder.stop(); } catch(e) {}
-    };
-
-    recorder.start(100);
-    videoEl.play().then(() => {
-      rafId = requestAnimationFrame(drawFrame);
-    }).catch(reject);
+// Seek preciso num elemento de vídeo
+function seekVideoTo(videoEl, time) {
+  return new Promise(resolve => {
+    if (Math.abs(videoEl.currentTime - time) < 0.001) { resolve(); return; }
+    videoEl.onseeked = () => { videoEl.onseeked = null; resolve(); };
+    videoEl.currentTime = time;
   });
 }
 
 function getVideoDuration(file) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const v = document.createElement('video');
     v.src = URL.createObjectURL(file);
-    v.onloadedmetadata = () => { URL.revokeObjectURL(v.src); resolve(v.duration); };
-    v.onerror = () => { URL.revokeObjectURL(v.src); resolve(14); }; // fallback
+    v.onloadedmetadata = () => { URL.revokeObjectURL(v.src); resolve(v.duration || 14); };
+    v.onerror = () => { URL.revokeObjectURL(v.src); resolve(14); };
   });
 }
-
 
 // Overlay helpers
 function setProcSub(t)  { document.getElementById('procSub').textContent  = t; }
