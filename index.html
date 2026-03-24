@@ -748,8 +748,6 @@ let saveDebounce = null;
 // ══════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════
-auth.getRedirectResult().catch(() => {});
-
 auth.onAuthStateChanged(async user => {
   document.getElementById('loadingOverlay').style.display = 'none';
   if (user) {
@@ -759,6 +757,11 @@ auth.onAuthStateChanged(async user => {
     await loadUserData();
     renderUI();
   } else {
+    // Verifica se está voltando de um redirect do Google
+    try {
+      const result = await auth.getRedirectResult();
+      if (result && result.user) return; // onAuthStateChanged vai disparar de novo com o user
+    } catch(e) {}
     currentUser = null;
     document.getElementById('loginScreen').style.display = 'flex';
     document.getElementById('app').style.display = 'none';
