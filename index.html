@@ -1245,7 +1245,13 @@ async function downloadAll() {
   }
 
   const overlay = document.getElementById('processingOverlay');
-  if (mp4Count > 0) { overlay.classList.add('show'); setProcBar(0); setProcSub('Gerando MP4s...'); setProcFile(''); }
+  if (mp4Count > 0) {
+    overlay.classList.add('show'); setProcBar(0); setProcFile('');
+    setProcSub('Preparando áudio...');
+    _cachedAudioBuf = null; _cachedAudioKey = ''; // reset cache para novo lote
+    await warmAudioCache(14); // decodifica e mixa áudio uma única vez antes do loop
+    setProcSub('Gerando MP4s...');
+  }
 
   let saved = 0, mp4Done = 0;
   try {
@@ -1412,8 +1418,13 @@ function setBgVolume(val) {
 
 // ══════════════════════════════════════════════════════
 // CONVERSÃO MP4 — WebCodecs + OfflineAudioContext
-// Sem ffmpeg, sem SharedArrayBuffer, sem headers especiais
+// Otimizado: áudio cacheado entre arquivos, 1 frame por vídeo
 // ══════════════════════════════════════════════════════
+
+// Cache do audioBuf — decodifica e mixa só uma vez por lote
+let _cachedAudioBuf      = null;
+let _cachedAudioKey      = '';   // audioFile.name + bgAudioFile.name + bgVolume
+let _cachedAudioDuration = 0;
 
 function loadImage(file) {
   return new Promise((res, rej) => {
@@ -1437,14 +1448,20 @@ function loadAudioBuffer(file, ctx) {
 }
 
 async function buildAudioBuffer(durationSecs) {
+  // Cache: se os mesmos áudios e volume já foram processados, reutiliza
+  const key = `${audioFile?.name||''}|${bgAudioFile?.name||''}|${bgVolume}|${durationSecs}`;
+  if (_cachedAudioBuf && key === _cachedAudioKey) return _cachedAudioBuf;
+
   const SR = 44100;
-  // Decodifica os arquivos usando um AudioContext temporário
   const decodeCtx = new AudioContext();
-  const narBuf = audioFile   ? await loadAudioBuffer(audioFile,   decodeCtx).catch(() => null) : null;
-  const bgBuf  = bgAudioFile ? await loadAudioBuffer(bgAudioFile, decodeCtx).catch(() => null) : null;
+  // Decodifica em paralelo
+  const [narBuf, bgBuf] = await Promise.all([
+    audioFile   ? loadAudioBuffer(audioFile,   decodeCtx).catch(() => null) : Promise.resolve(null),
+    bgAudioFile ? loadAudioBuffer(bgAudioFile, decodeCtx).catch(() => null) : Promise.resolve(null),
+  ]);
   decodeCtx.close();
-  if (!narBuf && !bgBuf) return null;
-  // Renderiza o mix offline com duração exata
+  if (!narBuf && !bgBuf) { _cachedAudioBuf = null; _cachedAudioKey = key; return null; }
+
   const off = new OfflineAudioContext(2, Math.ceil(SR * durationSecs), SR);
   if (narBuf) {
     const src = off.createBufferSource(); const g = off.createGain();
@@ -1456,16 +1473,28 @@ async function buildAudioBuffer(durationSecs) {
     src.buffer = bgBuf; g.gain.value = bgVolume;
     src.connect(g); g.connect(off.destination); src.start(0);
   }
-  return off.startRendering();
+  const result = await off.startRendering();
+  _cachedAudioBuf = result;
+  _cachedAudioKey = key;
+  return result;
+}
+
+// Pré-aquece o cache de áudio antes do lote (chama uma vez antes do loop)
+async function warmAudioCache(durationSecs) {
+  await buildAudioBuffer(durationSecs);
 }
 
 async function convertImageToMp4(imgFile) {
   const DURATION = 14;
-  const img      = await loadImage(imgFile);
-  const W        = img.naturalWidth  % 2 === 0 ? img.naturalWidth  : img.naturalWidth  - 1;
-  const H        = img.naturalHeight % 2 === 0 ? img.naturalHeight : img.naturalHeight - 1;
-  const audioBuf = await buildAudioBuffer(DURATION);
-  const canvas   = document.createElement('canvas');
+  // Carrega imagem e reutiliza áudio cacheado em paralelo
+  const [img, audioBuf] = await Promise.all([
+    loadImage(imgFile),
+    buildAudioBuffer(DURATION),
+  ]);
+  const W = img.naturalWidth  % 2 === 0 ? img.naturalWidth  : img.naturalWidth  - 1;
+  const H = img.naturalHeight % 2 === 0 ? img.naturalHeight : img.naturalHeight - 1;
+
+  const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   canvas.getContext('2d').drawImage(img, 0, 0, W, H);
 
@@ -1477,7 +1506,7 @@ async function convertImageToMp4(imgFile) {
 }
 
 async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
-  const FPS = 1; const FRAME_US = 1_000_000;
+  const DURATION_US = DURATION * 1_000_000;
   const target = new Mp4Muxer.ArrayBufferTarget();
   const muxer  = new Mp4Muxer.Muxer({
     target,
@@ -1485,20 +1514,23 @@ async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
     ...(audioBuf ? { audio: { codec: 'aac', sampleRate: audioBuf.sampleRate, numberOfChannels: audioBuf.numberOfChannels } } : {}),
     fastStart: 'in-memory',
   });
+
+  // Vídeo: apenas 1 frame (imagem estática) com duração total do vídeo
   const videoEnc = new VideoEncoder({
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error: e => { throw e; },
   });
-  videoEnc.configure({ codec: 'avc1.42001e', width: W, height: H, bitrate: 800_000, framerate: FPS, avc: { format: 'annexb' } });
-  for (let i = 0; i < DURATION * FPS; i++) {
-    const frame = new VideoFrame(canvas, { timestamp: i * FRAME_US, duration: FRAME_US });
-    videoEnc.encode(frame, { keyFrame: true });
-    frame.close();
-  }
-  await videoEnc.flush(); videoEnc.close();
+  videoEnc.configure({ codec: 'avc1.42001e', width: W, height: H, bitrate: 400_000, framerate: 1, avc: { format: 'annexb' } });
+  const frame = new VideoFrame(canvas, { timestamp: 0, duration: DURATION_US });
+  videoEnc.encode(frame, { keyFrame: true });
+  frame.close();
+  await videoEnc.flush();
+  videoEnc.close();
 
+  // Áudio: chunk size maior = menos iterações = mais rápido
   if (audioBuf) {
-    const SR = audioBuf.sampleRate, NCHAN = audioBuf.numberOfChannels, CHUNK = 1024;
+    const SR = audioBuf.sampleRate, NCHAN = audioBuf.numberOfChannels;
+    const CHUNK = 8192; // 8x maior que antes
     const audioEnc = new AudioEncoder({
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
       error: e => { throw e; },
@@ -1514,7 +1546,8 @@ async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
       const ad = new AudioData({ format: 'f32-interleaved', sampleRate: SR, numberOfFrames: size, numberOfChannels: NCHAN, timestamp: Math.round(offset / SR * 1_000_000), data: interleaved });
       audioEnc.encode(ad); ad.close();
     }
-    await audioEnc.flush(); audioEnc.close();
+    await audioEnc.flush();
+    audioEnc.close();
   }
   muxer.finalize();
   return new Blob([target.buffer.slice(0)], { type: 'video/mp4' });
