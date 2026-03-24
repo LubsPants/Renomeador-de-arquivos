@@ -1438,11 +1438,13 @@ function loadAudioBuffer(file, ctx) {
 
 async function buildAudioBuffer(durationSecs) {
   const SR = 44100;
-  const tmp = new OfflineAudioContext(2, SR * durationSecs, SR);
-  const narBuf = audioFile   ? await loadAudioBuffer(audioFile,   tmp).catch(() => null) : null;
-  const bgBuf  = bgAudioFile ? await loadAudioBuffer(bgAudioFile, tmp).catch(() => null) : null;
-  tmp.close();
+  // Decodifica os arquivos usando um AudioContext temporário
+  const decodeCtx = new AudioContext();
+  const narBuf = audioFile   ? await loadAudioBuffer(audioFile,   decodeCtx).catch(() => null) : null;
+  const bgBuf  = bgAudioFile ? await loadAudioBuffer(bgAudioFile, decodeCtx).catch(() => null) : null;
+  decodeCtx.close();
   if (!narBuf && !bgBuf) return null;
+  // Renderiza o mix offline com duração exata
   const off = new OfflineAudioContext(2, Math.ceil(SR * durationSecs), SR);
   if (narBuf) {
     const src = off.createBufferSource(); const g = off.createGain();
