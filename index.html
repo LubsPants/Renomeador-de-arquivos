@@ -694,9 +694,9 @@
         <!-- Upload da seta -->
         <div class="arrow-upload-col">
           <div class="arrow-empty-zone" id="arrowEmptyZone" onclick="document.getElementById('inArrow').click()">
-            <input type="file" id="inArrow" accept="image/*" onchange="arrowSelected(this.files[0])"/>
+            <input type="file" id="inArrow" accept="video/mp4,video/*" onchange="arrowSelected(this.files[0])"/>
             <span>🏹</span>
-            <span id="arrowZoneLabel">Upload seta<br>(PNG/SVG)</span>
+            <span id="arrowZoneLabel">Upload seta<br>(MP4)</span>
           </div>
 
           <!-- Controles -->
@@ -1180,11 +1180,10 @@ function addFilesToGroup(newFiles, fmt) {
   Array.from(newFiles).forEach(f => files.push({ file: f, group: fmt, newName: null }));
   renderGroups();
   checkAlignmentWarning();
-  // Atualiza preview da seta se ela existir e ainda não tiver preview de imagem
-  if (arrowImg) {
-    const canvas = document.getElementById('arrowCanvas');
+  // Atualiza preview da seta quando imagem é adicionada
+  if (arrowVideo && !arrowBgImg) {
     const firstImg = files.find(f => isImageExt(f.file.name));
-    if (firstImg && canvas.width <= 400) renderArrowPreview(firstImg.file);
+    if (firstImg) initArrowCanvas();
   }
 }
 
@@ -1587,10 +1586,6 @@ async function convertImageToMp4(imgFile) {
   canvas.width  = W;
   canvas.height = H;
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, 0, 0, W, H);
-
-  // Aplica seta se houver
-  if (arrowImg) applyArrowToCanvas(ctx, W, H);
 
   // Escolhe o melhor codec disponível
   const mimeType = ['video/webm;codecs=vp9,opus',
@@ -1598,8 +1593,25 @@ async function convertImageToMp4(imgFile) {
                     'video/webm'].find(m => MediaRecorder.isTypeSupported(m))
                  || 'video/webm';
 
-  // Stream do canvas (imagem estática)
-  const stream    = canvas.captureStream(FPS);
+  // Stream do canvas
+  const stream = canvas.captureStream(FPS);
+
+  // Se há seta MP4, anima via rAF durante a gravação
+  let exportRafId = null;
+  if (arrowVideo) {
+    arrowVideo.currentTime = 0;
+    arrowVideo.play().catch(() => {});
+    function drawExportFrame() {
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(img, 0, 0, W, H);
+      applyArrowToCanvas(ctx, W, H);
+      exportRafId = requestAnimationFrame(drawExportFrame);
+    }
+    exportRafId = requestAnimationFrame(drawExportFrame);
+  } else {
+    // Imagem estática — desenha uma vez
+    ctx.drawImage(img, 0, 0, W, H);
+  }
 
   // Adiciona áudio ao stream se houver
   const audioCtx  = new AudioContext();
@@ -1640,9 +1652,10 @@ async function convertImageToMp4(imgFile) {
 
     recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
     recorder.onstop = () => {
+      if (exportRafId) { cancelAnimationFrame(exportRafId); exportRafId = null; }
+      if (arrowVideo) arrowVideo.pause();
       audioCtx.close();
       stream.getTracks().forEach(t => t.stop());
-      // Retorna webm — extensão será .mp4 mas container é webm (aceito pela maioria)
       resolve(new Blob(chunks, { type: mimeType }));
     };
     recorder.onerror = e => { audioCtx.close(); reject(e.error); };
@@ -1658,42 +1671,44 @@ async function convertImageToMp4(imgFile) {
 
 
 // ══════════════════════════════════════════════════════
-// SETA OVERLAY
+// SETA OVERLAY — MP4 em loop sobre imagem
 // ══════════════════════════════════════════════════════
-let arrowFile    = null;   // arquivo de imagem da seta
-let arrowImg     = null;   // HTMLImageElement carregado
-let arrowPos     = { x: 0.5, y: 0.5 };  // posição normalizada (0–1)
-let arrowDragging = false;
+let arrowFile       = null;   // File MP4 da seta
+let arrowVideo      = null;   // HTMLVideoElement em loop
+let arrowPos        = { x: 0.5, y: 0.5 };
+let arrowDragging   = false;
 let arrowDragOffset = { x: 0, y: 0 };
+let arrowRafId      = null;   // requestAnimationFrame handle
+let arrowBgImg      = null;   // imagem de fundo do preview
 
 function arrowSelected(file) {
   if (!file) return;
   arrowFile = file;
-  const url = URL.createObjectURL(file);
-  const img = new Image();
-  img.onload = () => {
-    arrowImg = img;
-    URL.revokeObjectURL(url);
+
+  // Para loop anterior se houver
+  stopArrowLoop();
+
+  const vid = document.createElement('video');
+  vid.src    = URL.createObjectURL(file);
+  vid.loop   = true;
+  vid.muted  = true;
+  vid.playsInline = true;
+  vid.onloadedmetadata = () => {
+    arrowVideo = vid;
     document.getElementById('arrowZoneLabel').textContent = file.name;
     document.getElementById('arrowEmptyZone').classList.add('has-file');
     document.getElementById('arrowControls').style.display = 'flex';
     document.getElementById('arrowHint').style.display = '';
-    // Se já tem um vídeo carregado nos arquivos, usa o primeiro como preview
-    const firstImg = files.find(f => isImageExt(f.file.name));
-    if (firstImg) {
-      renderArrowPreview(firstImg.file);
-    } else {
-      // Mostra canvas vazio com fundo escuro
-      renderArrowOnBlank();
-    }
+    initArrowCanvas();
   };
-  img.src = url;
 }
 
 function clearArrow() {
-  arrowFile = null; arrowImg = null;
+  stopArrowLoop();
+  if (arrowVideo) { arrowVideo.pause(); arrowVideo.src = ''; arrowVideo = null; }
+  arrowFile = null; arrowBgImg = null;
   document.getElementById('arrowEmptyZone').classList.remove('has-file');
-  document.getElementById('arrowZoneLabel').innerHTML = 'Upload seta<br>(PNG/SVG)';
+  document.getElementById('arrowZoneLabel').innerHTML = 'Upload seta<br>(MP4)';
   document.getElementById('arrowControls').style.display = 'none';
   document.getElementById('arrowHint').style.display = 'none';
   document.getElementById('arrowCanvas').style.display = 'none';
@@ -1701,53 +1716,69 @@ function clearArrow() {
   document.getElementById('inArrow').value = '';
 }
 
-function renderArrowOnBlank() {
+function initArrowCanvas() {
+  const firstImgFile = files.find(f => isImageExt(f.file.name));
+  if (firstImgFile) {
+    const url = URL.createObjectURL(firstImgFile.file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      arrowBgImg = img;
+      startArrowCanvas(img.naturalWidth, img.naturalHeight);
+    };
+    img.src = url;
+  } else {
+    arrowBgImg = null;
+    startArrowCanvas(480, 270);
+  }
+}
+
+function startArrowCanvas(W, H) {
   const canvas = document.getElementById('arrowCanvas');
-  const wrap   = document.getElementById('arrowCanvasWrap');
-  canvas.width  = 400;
-  canvas.height = 225;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#1a1a26';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  canvas.width  = W;
+  canvas.height = H;
   document.getElementById('arrowNoVideo').style.display = 'none';
   canvas.style.display = 'block';
-  drawArrowOnCanvas(ctx, canvas.width, canvas.height);
   setupArrowDrag(canvas);
+  arrowVideo.play();
+  runArrowLoop();
 }
 
-function renderArrowPreview(imgFile) {
-  const url = URL.createObjectURL(imgFile);
-  const bg  = new Image();
-  bg.onload = () => {
-    URL.revokeObjectURL(url);
-    const canvas = document.getElementById('arrowCanvas');
-    canvas.width  = bg.naturalWidth;
-    canvas.height = bg.naturalHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(bg, 0, 0);
-    document.getElementById('arrowNoVideo').style.display = 'none';
-    canvas.style.display = 'block';
-    drawArrowOnCanvas(ctx, canvas.width, canvas.height);
-    setupArrowDrag(canvas);
-  };
-  bg.src = url;
+function stopArrowLoop() {
+  if (arrowRafId) { cancelAnimationFrame(arrowRafId); arrowRafId = null; }
 }
 
-function drawArrowOnCanvas(ctx, W, H) {
-  if (!arrowImg) return;
+function runArrowLoop() {
+  const canvas = document.getElementById('arrowCanvas');
+  const ctx    = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  function frame() {
+    ctx.clearRect(0, 0, W, H);
+    // Fundo: imagem ou cor
+    if (arrowBgImg) ctx.drawImage(arrowBgImg, 0, 0, W, H);
+    else { ctx.fillStyle = '#1a1a26'; ctx.fillRect(0, 0, W, H); }
+    // Seta MP4
+    drawArrowFrame(ctx, W, H);
+    arrowRafId = requestAnimationFrame(frame);
+  }
+  arrowRafId = requestAnimationFrame(frame);
+}
+
+function drawArrowFrame(ctx, W, H) {
+  if (!arrowVideo || arrowVideo.readyState < 2) return;
   const size    = parseInt(document.getElementById('arrowSize').value);
-  const rot     = parseInt(document.getElementById('arrowRot').value) * Math.PI / 180;
+  const rot     = parseFloat(document.getElementById('arrowRot').value) * Math.PI / 180;
   const opacity = parseInt(document.getElementById('arrowOpacity').value) / 100;
   const cx = arrowPos.x * W;
   const cy = arrowPos.y * H;
-  const ratio = arrowImg.naturalWidth / arrowImg.naturalHeight;
-  const w = size;
-  const h = size / ratio;
+  const ratio = arrowVideo.videoWidth / arrowVideo.videoHeight;
+  const w = size, h = size / ratio;
   ctx.save();
   ctx.globalAlpha = opacity;
   ctx.translate(cx, cy);
   ctx.rotate(rot);
-  ctx.drawImage(arrowImg, -w / 2, -h / 2, w, h);
+  ctx.drawImage(arrowVideo, -w / 2, -h / 2, w, h);
   ctx.restore();
 }
 
@@ -1755,85 +1786,49 @@ function updateArrowOverlay() {
   document.getElementById('arrowSizeVal').textContent    = document.getElementById('arrowSize').value + 'px';
   document.getElementById('arrowRotVal').textContent     = document.getElementById('arrowRot').value + '°';
   document.getElementById('arrowOpacityVal').textContent = document.getElementById('arrowOpacity').value + '%';
-  redrawArrowCanvas();
-}
-
-function redrawArrowCanvas() {
-  const canvas = document.getElementById('arrowCanvas');
-  if (canvas.style.display === 'none') return;
-  const ctx = canvas.getContext('2d');
-  // Redesenha fundo
-  const firstImg = files.find(f => isImageExt(f.file.name));
-  if (firstImg) {
-    const url = URL.createObjectURL(firstImg.file);
-    const bg  = new Image();
-    bg.onload = () => {
-      URL.revokeObjectURL(url);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
-      drawArrowOnCanvas(ctx, canvas.width, canvas.height);
-    };
-    bg.src = url;
-  } else {
-    ctx.fillStyle = '#1a1a26';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    drawArrowOnCanvas(ctx, canvas.width, canvas.height);
-  }
 }
 
 function setupArrowDrag(canvas) {
-  // Remove listeners antigos
-  canvas.onmousedown  = null;
-  canvas.onmousemove  = null;
-  canvas.onmouseup    = null;
-  canvas.ontouchstart = null;
-  canvas.ontouchmove  = null;
-  canvas.ontouchend   = null;
+  canvas.replaceWith(canvas.cloneNode(true)); // remove listeners antigos
+  const c = document.getElementById('arrowCanvas');
 
   function getPos(e) {
-    const rect  = canvas.getBoundingClientRect();
-    const scaleX = canvas.width  / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return {
-      x: (clientX - rect.left)  * scaleX,
-      y: (clientY - rect.top)   * scaleY
-    };
+    const rect = c.getBoundingClientRect();
+    const scaleX = c.width / rect.width, scaleY = c.height / rect.height;
+    const cx = e.touches ? e.touches[0].clientX : e.clientX;
+    const cy = e.touches ? e.touches[0].clientY : e.clientY;
+    return { x: (cx - rect.left) * scaleX, y: (cy - rect.top) * scaleY };
   }
 
   function startDrag(e) {
     e.preventDefault();
     const pos = getPos(e);
-    arrowDragOffset.x = pos.x - arrowPos.x * canvas.width;
-    arrowDragOffset.y = pos.y - arrowPos.y * canvas.height;
+    arrowDragOffset.x = pos.x - arrowPos.x * c.width;
+    arrowDragOffset.y = pos.y - arrowPos.y * c.height;
     arrowDragging = true;
   }
-
   function moveDrag(e) {
     if (!arrowDragging) return;
     e.preventDefault();
     const pos = getPos(e);
-    arrowPos.x = Math.min(1, Math.max(0, (pos.x - arrowDragOffset.x) / canvas.width));
-    arrowPos.y = Math.min(1, Math.max(0, (pos.y - arrowDragOffset.y) / canvas.height));
-    redrawArrowCanvas();
+    arrowPos.x = Math.min(1, Math.max(0, (pos.x - arrowDragOffset.x) / c.width));
+    arrowPos.y = Math.min(1, Math.max(0, (pos.y - arrowDragOffset.y) / c.height));
   }
-
   function endDrag() { arrowDragging = false; }
 
-  canvas.addEventListener('mousedown',  startDrag);
-  canvas.addEventListener('mousemove',  moveDrag);
-  canvas.addEventListener('mouseup',    endDrag);
-  canvas.addEventListener('mouseleave', endDrag);
-  canvas.addEventListener('touchstart', startDrag, { passive: false });
-  canvas.addEventListener('touchmove',  moveDrag,  { passive: false });
-  canvas.addEventListener('touchend',   endDrag);
+  c.addEventListener('mousedown',  startDrag);
+  c.addEventListener('mousemove',  moveDrag);
+  c.addEventListener('mouseup',    endDrag);
+  c.addEventListener('mouseleave', endDrag);
+  c.addEventListener('touchstart', startDrag, { passive: false });
+  c.addEventListener('touchmove',  moveDrag,  { passive: false });
+  c.addEventListener('touchend',   endDrag);
 }
 
-// Aplica seta a um canvas existente (usado na exportação)
+// Aplica seta ao canvas na exportação — desenha um frame do vídeo
 function applyArrowToCanvas(ctx, W, H) {
-  if (!arrowImg) return;
-  drawArrowOnCanvas(ctx, W, H);
+  if (!arrowVideo) return;
+  drawArrowFrame(ctx, W, H);
 }
 
 // Overlay helpers
