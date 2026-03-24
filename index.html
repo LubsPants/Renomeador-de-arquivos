@@ -304,74 +304,7 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   #loadingOverlay p { font-size:12px; color:var(--muted); }
 
-  /* ── PREVIEW MP4 ── */
-  .preview-mp4-wrap {
-    margin-top:10px; border-radius:8px; overflow:hidden;
-    background:#000; position:relative; display:none; max-height:380px;
-  }
-  .preview-mp4-wrap video { display:block; width:100%; height:auto; max-height:380px; border-radius:8px; }
-  .preview-mp4-label {
-    position:absolute; top:6px; left:8px;
-    background:rgba(0,0,0,0.6); color:var(--warn); font-size:9px;
-    font-weight:700; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:1px;
-  }
-  .preview-mp4-actions {
-    display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;
-  }
-  .btn-preview-gen {
-    background:rgba(251,191,36,0.12); border:1px solid rgba(251,191,36,0.35);
-    color:var(--warn); border-radius:7px; padding:6px 14px;
-    font-family:'Poppins',sans-serif; font-size:10px; font-weight:600;
-    cursor:pointer; transition:all 0.2s; text-transform:uppercase; letter-spacing:0.5px;
-    display:flex; align-items:center; gap:5px;
-  }
-  .btn-preview-gen:hover { background:rgba(251,191,36,0.2); }
-  .btn-preview-gen:disabled { opacity:0.4; cursor:not-allowed; }
-  .preview-gen-progress { font-size:10px; color:var(--muted); align-self:center; }
-
-  /* ── SETA OVERLAY ── */
-  .arrow-strip {
-    background:var(--surface); border:1px solid var(--border);
-    border-radius:10px; overflow:hidden;
-  }
-  .arrow-strip-header {
-    display:flex; align-items:center; justify-content:space-between;
-    padding:10px 16px; border-bottom:1px solid var(--border);
-  }
-  .arrow-strip-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--warn); display:flex; align-items:center; gap:6px; }
-  .arrow-strip-label::before { content:''; width:3px; height:11px; background:var(--warn); border-radius:2px; }
-  .arrow-strip-body { padding:12px 16px; display:flex; gap:12px; align-items:flex-start; }
-  .arrow-upload-col { display:flex; flex-direction:column; gap:8px; flex-shrink:0; }
-  .arrow-empty-zone {
-    width:120px; height:80px; border:2px dashed var(--border); border-radius:9px;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    gap:4px; cursor:pointer; transition:all 0.2s; color:var(--muted); font-size:10px;
-  }
-  .arrow-empty-zone:hover { border-color:var(--warn); color:var(--warn); background:rgba(251,191,36,0.04); }
-  .arrow-empty-zone.has-file { border-color:rgba(251,191,36,0.4); background:rgba(251,191,36,0.06); }
-  .arrow-empty-zone span:first-child { font-size:20px; }
-  .arrow-controls { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
-  .arrow-ctrl-row { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--muted); }
-  .arrow-ctrl-row label { min-width:50px; }
-  .arrow-ctrl-row input[type="range"] { width:80px; accent-color:var(--warn); cursor:pointer; }
-  .arrow-ctrl-row input[type="number"] { width:54px; padding:3px 6px; font-size:11px; border-radius:5px; text-align:center; }
-  .arrow-ctrl-val { font-size:11px; color:var(--warn); font-weight:600; min-width:36px; }
-  .arrow-preview-col { flex:1; min-width:0; }
-  .arrow-canvas-wrap {
-    position:relative; background:#000; border-radius:8px; overflow:hidden;
-    cursor:crosshair; user-select:none; max-width:100%; max-height:380px;
-  }
-  .arrow-canvas-wrap canvas { display:block; width:100%; height:auto; max-height:380px; object-fit:contain; }
-  .arrow-hint { font-size:10px; color:var(--muted); margin-top:5px; }
-  .arrow-btn-clear {
-    background:transparent; border:1px solid var(--border); color:var(--muted);
-    border-radius:5px; padding:4px 10px; font-size:10px; cursor:pointer;
-    font-family:'Poppins',sans-serif; transition:all 0.15s;
-  }
-  .arrow-btn-clear:hover { border-color:var(--danger); color:var(--danger); }
-  .arrow-no-video { font-size:11px; color:var(--muted); padding:20px; text-align:center; line-height:1.6; }
-
-    input[type="file"] { display:none; }
+  input[type="file"] { display:none; }
 
   @media (max-width:960px) {
     .main { grid-template-columns:1fr; padding:20px; }
@@ -708,72 +641,6 @@
       </div>
     </div>
 
-    <!-- SETA OVERLAY -->
-    <div class="arrow-strip" id="arrowStripEl">
-      <div class="arrow-strip-header">
-        <div class="arrow-strip-label">🎯 Seta sobre o vídeo</div>
-        <button class="arrow-btn-clear" onclick="clearArrow()">✕ Remover seta</button>
-      </div>
-      <div class="arrow-strip-body">
-
-        <!-- Upload da seta -->
-        <div class="arrow-upload-col">
-          <div class="arrow-empty-zone" id="arrowEmptyZone" onclick="document.getElementById('inArrow').click()">
-            <input type="file" id="inArrow" accept="video/mp4,video/*" onchange="arrowSelected(this.files[0])"/>
-            <span>🏹</span>
-            <span id="arrowZoneLabel">Upload seta<br>(MP4)</span>
-          </div>
-
-          <!-- Controles -->
-          <div class="arrow-controls" id="arrowControls" style="display:none;">
-            <div class="arrow-ctrl-row">
-              <label>Tamanho</label>
-              <input type="range" id="arrowSize" min="20" max="300" value="80" oninput="updateArrowOverlay()"/>
-              <span class="arrow-ctrl-val" id="arrowSizeVal">80px</span>
-            </div>
-            <div class="arrow-ctrl-row">
-              <label>Rotação</label>
-              <input type="range" id="arrowRot" min="0" max="360" value="0" oninput="updateArrowOverlay()"/>
-              <span class="arrow-ctrl-val" id="arrowRotVal">0°</span>
-            </div>
-            <div class="arrow-ctrl-row">
-              <label>Opacidade</label>
-              <input type="range" id="arrowOpacity" min="10" max="100" value="100" oninput="updateArrowOverlay()"/>
-              <span class="arrow-ctrl-val" id="arrowOpacityVal">100%</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Preview com drag -->
-        <div class="arrow-preview-col">
-          <div class="arrow-canvas-wrap" id="arrowCanvasWrap">
-            <div class="arrow-no-video" id="arrowNoVideo">
-              Adicione um MP4 abaixo para posicionar a seta.<br>
-              <span style="font-size:10px;">A seta será sobreposta em todos os vídeos exportados.</span>
-            </div>
-            <canvas id="arrowCanvas" style="display:none;"></canvas>
-          </div>
-          <div class="arrow-hint" id="arrowHint" style="display:none;">
-            🖱 Arraste a seta para posicionar. Controles à esquerda para ajustar tamanho e rotação.
-          </div>
-
-          <!-- Preview MP4 -->
-          <div class="preview-mp4-actions" id="previewMp4Actions" style="display:none;">
-            <button class="btn-preview-gen" id="btnGenPreview" onclick="generatePreviewMp4()">
-              ▶ Gerar Preview MP4
-            </button>
-            <span class="preview-gen-progress" id="previewGenProgress"></span>
-          </div>
-          <div class="preview-mp4-wrap" id="previewMp4Wrap">
-            <div class="preview-mp4-label">Preview 14s</div>
-            <video id="previewMp4Video" controls loop playsinline></video>
-          </div>
-
-        </div>
-
-      </div>
-    </div>
-
     <div class="groups-grid">
       <div class="group-panel feed">
         <div class="group-head">
@@ -833,28 +700,9 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- MODAL DE APROVAÇÃO -->
-<div id="approvalModal">
-  <div class="approval-card">
-    <div class="approval-header">
-      <div>
-        <div class="approval-title" id="approvalTitle">Preview</div>
-        <div class="approval-meta" id="approvalMeta">—</div>
-      </div>
-      <div class="approval-counter" id="approvalCounter"></div>
-    </div>
-    <div class="approval-canvas-wrap">
-      <canvas id="approvalCanvas"></canvas>
-    </div>
-    <div class="approval-status" id="approvalStatus">Gerando preview...</div>
-    <div class="approval-actions">
-      <button class="btn-reject"      onclick="approvalReject()">✕ Remover este</button>
-      <button class="btn-approve-all" onclick="approvalApproveAll()">✓ Aprovar todos</button>
-      <button class="btn-approve"     onclick="approvalApprove()">✓ Aprovar →</button>
-    </div>
-  </div>
-</div>
+<div class="toast" id="toast"></div>
 
+<!-- MODAL DE APROVAÇÃO -->
 <!-- sem ffmpeg: usa MediaRecorder nativo -->
 
 <!-- Firebase v9 compat -->
@@ -1240,11 +1088,7 @@ function addFilesToGroup(newFiles, fmt) {
   Array.from(newFiles).forEach(f => files.push({ file: f, group: fmt, newName: null }));
   renderGroups();
   checkAlignmentWarning();
-  // Atualiza preview da seta quando imagem é adicionada
-  if (arrowVideo && !arrowBgImg) {
-    const firstImg = files.find(f => isImageExt(f.file.name));
-    if (firstImg) initArrowCanvas();
-  }
+
 }
 
 function removeFile(idx) {
@@ -1373,154 +1217,20 @@ function renameAll() {
 
 
 // ══════════════════════════════════════════════════════
-// MODAL DE APROVAÇÃO — preview antes de exportar
-// ══════════════════════════════════════════════════════
-let approvalQueue    = [];   // itens pendentes de aprovação
-let approvalCurrent  = 0;
-let approvalResolve  = null; // Promise resolve para cada item
-let approvalRafId    = null;
-let approvalBgImg    = null;
-
-async function runApprovalFlow() {
-  // Monta fila com todos os arquivos renomeados que são imagens (viram MP4)
-  const renamed = files.filter(f => f.newName);
-  if (!renamed.length) return true;
-
-  // Só mostra aprovação se há seta ou áudio (algo que transforma a imagem)
-  const hasTransform = arrowVideo || audioFile || bgAudioFile;
-  const imgItems = renamed.filter(f => isImageExt(f.file.name));
-  if (!hasTransform || imgItems.length === 0) return true;
-
-  approvalQueue   = imgItems;
-  approvalCurrent = 0;
-
-  return new Promise(resolve => {
-    approvalResolve = resolve;
-    showApprovalItem();
-    document.getElementById('approvalModal').classList.add('open');
-  });
-}
-
-function showApprovalItem() {
-  const item = approvalQueue[approvalCurrent];
-  if (!item) return;
-
-  const fmt    = item.group;
-  const total  = approvalQueue.length;
-  const idx    = approvalCurrent + 1;
-
-  document.getElementById('approvalTitle').textContent   = item.newName || item.file.name;
-  document.getElementById('approvalMeta').textContent    = `${fmt} · ${item.file.name}`;
-  document.getElementById('approvalCounter').textContent = `${idx} / ${total}`;
-  document.getElementById('approvalStatus').textContent  = 'Gerando preview...';
-
-  // Carrega imagem de fundo
-  const url = URL.createObjectURL(item.file);
-  const img = new Image();
-  img.onload = () => {
-    URL.revokeObjectURL(url);
-    approvalBgImg = img;
-    const canvas = document.getElementById('approvalCanvas');
-    const W = img.naturalWidth  % 2 === 0 ? img.naturalWidth  : img.naturalWidth  - 1;
-    const H = img.naturalHeight % 2 === 0 ? img.naturalHeight : img.naturalHeight - 1;
-    canvas.width  = W;
-    canvas.height = H;
-
-    document.getElementById('approvalStatus').textContent = 'Clique ✓ Aprovar para confirmar';
-
-    // Para loop anterior
-    if (approvalRafId) { cancelAnimationFrame(approvalRafId); approvalRafId = null; }
-
-    // Inicia loop animado
-    if (arrowVideo) {
-      arrowVideo.currentTime = 0;
-      arrowVideo.play().catch(() => {});
-    }
-    runApprovalLoop(canvas, W, H, fmt);
-  };
-  img.src = url;
-}
-
-function runApprovalLoop(canvas, W, H, fmt) {
-  const ctx = canvas.getContext('2d');
-
-  function frame() {
-    ctx.clearRect(0, 0, W, H);
-    if (approvalBgImg) ctx.drawImage(approvalBgImg, 0, 0, W, H);
-    if (arrowVideo)    applyArrowToCanvas(ctx, W, H, fmt);
-    approvalRafId = requestAnimationFrame(frame);
-  }
-  approvalRafId = requestAnimationFrame(frame);
-}
-
-function stopApprovalLoop() {
-  if (approvalRafId) { cancelAnimationFrame(approvalRafId); approvalRafId = null; }
-  if (arrowVideo) arrowVideo.pause();
-}
-
-function approvalApprove() {
-  approvalCurrent++;
-  if (approvalCurrent >= approvalQueue.length) {
-    closeApproval(true);
-  } else {
-    showApprovalItem();
-  }
-}
-
-function approvalApproveAll() {
-  closeApproval(true);
-}
-
-function approvalReject() {
-  // Remove o item da lista de files
-  const item = approvalQueue[approvalCurrent];
-  const idx  = files.indexOf(item);
-  if (idx !== -1) files.splice(idx, 1);
-  approvalQueue.splice(approvalCurrent, 1);
-
-  if (approvalQueue.length === 0 || approvalCurrent >= approvalQueue.length) {
-    if (approvalQueue.length === 0) {
-      closeApproval(false);
-      renderGroups();
-    } else {
-      approvalCurrent = Math.max(0, approvalCurrent - 1);
-      approvalApprove();
-    }
-  } else {
-    showApprovalItem();
-  }
-  renderGroups();
-}
-
-function closeApproval(approved) {
-  stopApprovalLoop();
-  document.getElementById('approvalModal').classList.remove('open');
-  approvalBgImg = null;
-  if (approvalResolve) { approvalResolve(approved); approvalResolve = null; }
-}
-
-// ══════════════════════════════════════════════════════
 // DOWNLOAD
 // ══════════════════════════════════════════════════════
 async function downloadAll() {
   const renamed = files.filter(f => f.newName);
   if (!renamed.length) return;
 
-  // Mostra modal de aprovação antes de exportar
-  const approved = await runApprovalFlow();
-  if (!approved) { showToast('Nenhum arquivo aprovado.', 'warn'); return; }
-  // Re-filtra após possíveis remoções no modal
-  const finalRenamed = files.filter(f => f.newName);
-  if (!finalRenamed.length) { showToast('Nenhum arquivo para salvar.', 'warn'); return; }
-
   const pais    = document.getElementById('selPais').value || 'FILES';
   const grouped = { FEED: [], ST: [], TIKTOK: [] };
-  finalRenamed.forEach(item => grouped[item.group].push(item));
+  renamed.forEach(item => grouped[item.group].push(item));
   const active  = FORMATOS.filter(f => grouped[f].length > 0);
 
   // Conta quantos arquivos precisam de conversão MP4
-  const totalItems = finalRenamed.length;
-  const mp4Count   = hasAnyAudio() ? finalRenamed.filter(i => isImageExt(i.file.name)).length : 0;
+  const totalItems = renamed.length;
+  const mp4Count   = hasAnyAudio() ? renamed.filter(i => isImageExt(i.file.name)).length : 0;
 
   if (!('showDirectoryPicker' in window)) {
     showToast('Seu browser não suporta salvar pastas. Use Chrome ou Edge.', 'error');
@@ -1574,7 +1284,7 @@ async function downloadAll() {
           setProcFile(item.newName);
           setProcBar(Math.round((mp4Done / mp4Count) * 100));
 
-          const mp4Blob = await convertImageToMp4(item.file, fmt);
+          const mp4Blob = await convertImageToMp4(item.file);
           const fh = await fmtDir.getFileHandle(item.newName, { create: true });
           const wr = await fh.createWritable();
           await wr.write(mp4Blob);
@@ -1768,7 +1478,7 @@ function loadAudioBuffer(file, audioCtx) {
   });
 }
 
-async function convertImageToMp4(imgFile, fmt) {
+async function convertImageToMp4(imgFile) {
   const DURATION = 14; // segundos
   const FPS      = 30;
   const img      = await loadImage(imgFile);
@@ -1791,22 +1501,8 @@ async function convertImageToMp4(imgFile, fmt) {
   // Stream do canvas
   const stream = canvas.captureStream(FPS);
 
-  // Se há seta MP4, anima via rAF durante a gravação
-  let exportRafId = null;
-  if (arrowVideo) {
-    arrowVideo.currentTime = 0;
-    arrowVideo.play().catch(() => {});
-    function drawExportFrame() {
-      ctx.clearRect(0, 0, W, H);
-      ctx.drawImage(img, 0, 0, W, H);
-      applyArrowToCanvas(ctx, W, H, fmt || arrowPreviewFmt);
-      exportRafId = requestAnimationFrame(drawExportFrame);
-    }
-    exportRafId = requestAnimationFrame(drawExportFrame);
-  } else {
-    // Imagem estática — desenha uma vez
-    ctx.drawImage(img, 0, 0, W, H);
-  }
+  // Imagem estática
+  ctx.drawImage(img, 0, 0, W, H);
 
   // Adiciona áudio ao stream se houver
   const audioCtx  = new AudioContext();
@@ -1847,8 +1543,6 @@ async function convertImageToMp4(imgFile, fmt) {
 
     recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
     recorder.onstop = () => {
-      if (exportRafId) { cancelAnimationFrame(exportRafId); exportRafId = null; }
-      if (arrowVideo) arrowVideo.pause();
       audioCtx.close();
       stream.getTracks().forEach(t => t.stop());
       resolve(new Blob(chunks, { type: mimeType }));
@@ -1863,231 +1557,6 @@ async function convertImageToMp4(imgFile, fmt) {
     }, DURATION * 1000);
   });
 }
-
-
-// ══════════════════════════════════════════════════════
-// SETA OVERLAY — posições fixas por formato
-// ══════════════════════════════════════════════════════
-
-// Posições normalizadas (x,y) da seta por formato
-// FEED: direita-inferior | ST/TIKTOK: centro-baixo
-const ARROW_POS_BY_FMT = {
-  FEED:   { x: 0.82, y: 0.88 },
-  ST:     { x: 0.50, y: 0.82 },
-  TIKTOK: { x: 0.50, y: 0.82 },
-};
-
-// Tamanho da seta em % da largura do canvas (relativo)
-const ARROW_SIZE_PCT = {
-  FEED:   0.22,   // 22% da largura
-  ST:     0.28,   // 28% da largura (mais largo pois é 9:16)
-  TIKTOK: 0.28,
-};
-
-let arrowFile       = null;
-let arrowVideo      = null;
-let arrowRafId      = null;
-let arrowBgImg      = null;
-// Posição usada no preview editável (pode ser ajustada)
-let arrowPos        = { x: 0.82, y: 0.88 };
-let arrowDragging   = false;
-let arrowDragOffset = { x: 0, y: 0 };
-// Formato atual no preview da seta
-let arrowPreviewFmt = 'FEED';
-
-function getArrowPosForFmt(fmt) {
-  return ARROW_POS_BY_FMT[fmt] || { x: 0.5, y: 0.82 };
-}
-
-function getArrowSizeForFmt(fmt, canvasW) {
-  const pct = ARROW_SIZE_PCT[fmt] || 0.25;
-  return Math.round(canvasW * pct);
-}
-
-function arrowSelected(file) {
-  if (!file) return;
-  arrowFile = file;
-  stopArrowLoop();
-
-  const vid = document.createElement('video');
-  vid.src = URL.createObjectURL(file);
-  vid.loop = true;
-  vid.muted = true;
-  vid.playsInline = true;
-  vid.onloadedmetadata = () => {
-    arrowVideo = vid;
-    document.getElementById('arrowZoneLabel').textContent = file.name;
-    document.getElementById('arrowEmptyZone').classList.add('has-file');
-    document.getElementById('arrowControls').style.display = 'flex';
-    document.getElementById('arrowHint').style.display = '';
-    document.getElementById('previewMp4Actions').style.display = 'flex';
-    // Define posição inicial pelo formato predominante
-    const fmt = getPreviewFmt();
-    arrowPreviewFmt = fmt;
-    arrowPos = { ...getArrowPosForFmt(fmt) };
-    document.getElementById('arrowSize').value = 80;
-    document.getElementById('arrowSizeVal').textContent = '80px';
-    initArrowCanvas();
-  };
-}
-
-function getPreviewFmt() {
-  // Retorna o formato que tem mais arquivos, priorizando FEED
-  const grouped = { FEED: 0, ST: 0, TIKTOK: 0 };
-  files.forEach(f => { if (grouped[f.group] !== undefined) grouped[f.group]++; });
-  if (grouped.FEED > 0) return 'FEED';
-  if (grouped.ST > 0) return 'ST';
-  return 'TIKTOK';
-}
-
-function clearArrow() {
-  stopArrowLoop();
-  if (arrowVideo) { arrowVideo.pause(); arrowVideo.src = ''; arrowVideo = null; }
-  arrowFile = null; arrowBgImg = null;
-  document.getElementById('arrowEmptyZone').classList.remove('has-file');
-  document.getElementById('arrowZoneLabel').innerHTML = 'Upload seta<br>(MP4)';
-  document.getElementById('arrowControls').style.display = 'none';
-  document.getElementById('arrowHint').style.display = 'none';
-  document.getElementById('previewMp4Actions').style.display = 'none';
-  document.getElementById('previewMp4Wrap').style.display = 'none';
-  const oldVid = document.getElementById('previewMp4Video');
-  if (oldVid.src) { URL.revokeObjectURL(oldVid.src); oldVid.src = ''; }
-  document.getElementById('arrowCanvas').style.display = 'none';
-  document.getElementById('arrowNoVideo').style.display = '';
-  document.getElementById('inArrow').value = '';
-}
-
-function initArrowCanvas() {
-  const firstImgFile = files.find(f => isImageExt(f.file.name));
-  if (firstImgFile) {
-    const url = URL.createObjectURL(firstImgFile.file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      arrowBgImg = img;
-      startArrowCanvas(img.naturalWidth, img.naturalHeight);
-    };
-    img.src = url;
-  } else {
-    arrowBgImg = null;
-    startArrowCanvas(480, 270);
-  }
-}
-
-function startArrowCanvas(W, H) {
-  const canvas = document.getElementById('arrowCanvas');
-  canvas.width  = W;
-  canvas.height = H;
-  document.getElementById('arrowNoVideo').style.display = 'none';
-  canvas.style.display = 'block';
-  setupArrowDrag(canvas);
-  stopArrowLoop();
-
-  const startPlay = () => {
-    arrowVideo.play().catch(() => {});
-    runArrowLoop();
-  };
-  if (arrowVideo.readyState >= 3) startPlay();
-  else arrowVideo.addEventListener('canplay', startPlay, { once: true });
-}
-
-function stopArrowLoop() {
-  if (arrowRafId) { cancelAnimationFrame(arrowRafId); arrowRafId = null; }
-}
-
-function runArrowLoop() {
-  const canvas = document.getElementById('arrowCanvas');
-  const ctx    = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-
-  function frame() {
-    ctx.clearRect(0, 0, W, H);
-    if (arrowBgImg) ctx.drawImage(arrowBgImg, 0, 0, W, H);
-    else { ctx.fillStyle = '#1a1a26'; ctx.fillRect(0, 0, W, H); }
-    drawArrowFrameAt(ctx, W, H, arrowPos, arrowPreviewFmt);
-    arrowRafId = requestAnimationFrame(frame);
-  }
-  arrowRafId = requestAnimationFrame(frame);
-}
-
-function drawArrowFrameAt(ctx, W, H, pos, fmt) {
-  if (!arrowVideo || arrowVideo.videoWidth === 0) return;
-  const opacity = parseInt(document.getElementById('arrowOpacity').value) / 100;
-  const rot     = parseFloat(document.getElementById('arrowRot').value) * Math.PI / 180;
-
-  // Tamanho: usa slider se movido, senão calcula pelo formato
-  const sliderVal = parseInt(document.getElementById('arrowSize').value);
-  const autoSize  = getArrowSizeForFmt(fmt, W);
-  // Se o slider ainda está no default (80), usa o auto
-  const size = (sliderVal === 80) ? autoSize : sliderVal;
-
-  const cx = pos.x * W;
-  const cy = pos.y * H;
-  const ratio = arrowVideo.videoWidth / arrowVideo.videoHeight;
-  const w = size, h = size / ratio;
-
-  ctx.save();
-  ctx.globalAlpha = opacity;
-  ctx.translate(cx, cy);
-  ctx.rotate(rot);
-  // Blend mode screen: remove o fundo preto da seta
-  ctx.globalCompositeOperation = 'screen';
-  ctx.drawImage(arrowVideo, -w / 2, -h / 2, w, h);
-  ctx.restore();
-}
-
-function updateArrowOverlay() {
-  document.getElementById('arrowSizeVal').textContent    = document.getElementById('arrowSize').value + 'px';
-  document.getElementById('arrowRotVal').textContent     = document.getElementById('arrowRot').value + '°';
-  document.getElementById('arrowOpacityVal').textContent = document.getElementById('arrowOpacity').value + '%';
-}
-
-function setupArrowDrag(canvas) {
-  if (canvas._dragSetup) return;
-  canvas._dragSetup = true;
-
-  function getPos(e) {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const cx = e.touches ? e.touches[0].clientX : e.clientX;
-    const cy = e.touches ? e.touches[0].clientY : e.clientY;
-    return { x: (cx - rect.left) * scaleX, y: (cy - rect.top) * scaleY };
-  }
-
-  function startDrag(e) {
-    e.preventDefault();
-    const pos = getPos(e);
-    arrowDragOffset.x = pos.x - arrowPos.x * canvas.width;
-    arrowDragOffset.y = pos.y - arrowPos.y * canvas.height;
-    arrowDragging = true;
-  }
-  function moveDrag(e) {
-    if (!arrowDragging) return;
-    e.preventDefault();
-    const pos = getPos(e);
-    arrowPos.x = Math.min(1, Math.max(0, (pos.x - arrowDragOffset.x) / canvas.width));
-    arrowPos.y = Math.min(1, Math.max(0, (pos.y - arrowDragOffset.y) / canvas.height));
-  }
-  function endDrag() { arrowDragging = false; }
-
-  canvas.addEventListener('mousedown',  startDrag);
-  canvas.addEventListener('mousemove',  moveDrag);
-  canvas.addEventListener('mouseup',    endDrag);
-  canvas.addEventListener('mouseleave', endDrag);
-  canvas.addEventListener('touchstart', startDrag, { passive: false });
-  canvas.addEventListener('touchmove',  moveDrag,  { passive: false });
-  canvas.addEventListener('touchend',   endDrag);
-}
-
-// Aplica seta ao canvas na exportação com posição correta pelo formato
-function applyArrowToCanvas(ctx, W, H, fmt) {
-  if (!arrowVideo) return;
-  // Usa posição do preview se o formato bater, senão usa a posição padrão do formato
-  const pos = (fmt === arrowPreviewFmt) ? arrowPos : getArrowPosForFmt(fmt);
-  drawArrowFrameAt(ctx, W, H, pos, fmt);
-}
-
 
 // Overlay helpers
 function setProcSub(t)  { document.getElementById('procSub').textContent  = t; }
