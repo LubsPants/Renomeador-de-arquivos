@@ -748,29 +748,46 @@ let showAllCountries = false;
 let saveDebounce = null;
 
 // ══════════════════════════════════════════════════════
-// AUTH
+// AUTH — fluxo redirect (compatível com COOP: same-origin)
 // ══════════════════════════════════════════════════════
-auth.onAuthStateChanged(async user => {
+
+function showApp(user) {
+  currentUser = user;
   document.getElementById('loadingOverlay').style.display = 'none';
-  if (user) {
-    currentUser = user;
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    await loadUserData();
-    renderUI();
-  } else {
-    currentUser = null;
-    document.getElementById('loginScreen').style.display = 'flex';
-    document.getElementById('app').style.display = 'none';
+  document.getElementById('loginScreen').style.display   = 'none';
+  document.getElementById('app').style.display           = 'block';
+  loadUserData().then(() => renderUI());
+}
+
+function showLogin() {
+  currentUser = null;
+  document.getElementById('loadingOverlay').style.display = 'none';
+  document.getElementById('loginScreen').style.display   = 'flex';
+  document.getElementById('app').style.display           = 'none';
+}
+
+// Ponto de entrada único: resolve redirect pendente, depois observa estado
+(async () => {
+  try {
+    const result = await auth.getRedirectResult();
+    if (result && result.user) {
+      showApp(result.user);
+      return;
+    }
+  } catch(e) {
+    console.warn('getRedirectResult error:', e.message);
   }
-});
+
+  // Sem redirect pendente — observa estado normal
+  auth.onAuthStateChanged(user => {
+    if (user) showApp(user);
+    else      showLogin();
+  });
+})();
 
 function loginGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithPopup(provider).catch(e => {
-    if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
-    showLoginError(e.message);
-  });
+  auth.signInWithRedirect(provider).catch(e => showLoginError(e.message));
 }
 
 function loginEmail() {
