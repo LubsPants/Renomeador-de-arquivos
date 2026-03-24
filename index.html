@@ -303,7 +303,50 @@
   }
   @keyframes spin { to { transform:rotate(360deg); } }
   #loadingOverlay p { font-size:12px; color:var(--muted); }
-  input[type="file"] { display:none; }
+
+  /* ── SETA OVERLAY ── */
+  .arrow-strip {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:10px; overflow:hidden;
+  }
+  .arrow-strip-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 16px; border-bottom:1px solid var(--border);
+  }
+  .arrow-strip-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--warn); display:flex; align-items:center; gap:6px; }
+  .arrow-strip-label::before { content:''; width:3px; height:11px; background:var(--warn); border-radius:2px; }
+  .arrow-strip-body { padding:12px 16px; display:flex; gap:12px; align-items:flex-start; }
+  .arrow-upload-col { display:flex; flex-direction:column; gap:8px; flex-shrink:0; }
+  .arrow-empty-zone {
+    width:120px; height:80px; border:2px dashed var(--border); border-radius:9px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:4px; cursor:pointer; transition:all 0.2s; color:var(--muted); font-size:10px;
+  }
+  .arrow-empty-zone:hover { border-color:var(--warn); color:var(--warn); background:rgba(251,191,36,0.04); }
+  .arrow-empty-zone.has-file { border-color:rgba(251,191,36,0.4); background:rgba(251,191,36,0.06); }
+  .arrow-empty-zone span:first-child { font-size:20px; }
+  .arrow-controls { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
+  .arrow-ctrl-row { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--muted); }
+  .arrow-ctrl-row label { min-width:50px; }
+  .arrow-ctrl-row input[type="range"] { width:80px; accent-color:var(--warn); cursor:pointer; }
+  .arrow-ctrl-row input[type="number"] { width:54px; padding:3px 6px; font-size:11px; border-radius:5px; text-align:center; }
+  .arrow-ctrl-val { font-size:11px; color:var(--warn); font-weight:600; min-width:36px; }
+  .arrow-preview-col { flex:1; min-width:0; }
+  .arrow-canvas-wrap {
+    position:relative; background:#000; border-radius:8px; overflow:hidden;
+    cursor:crosshair; user-select:none; max-width:100%;
+  }
+  .arrow-canvas-wrap canvas { display:block; width:100%; height:auto; }
+  .arrow-hint { font-size:10px; color:var(--muted); margin-top:5px; }
+  .arrow-btn-clear {
+    background:transparent; border:1px solid var(--border); color:var(--muted);
+    border-radius:5px; padding:4px 10px; font-size:10px; cursor:pointer;
+    font-family:'Poppins',sans-serif; transition:all 0.15s;
+  }
+  .arrow-btn-clear:hover { border-color:var(--danger); color:var(--danger); }
+  .arrow-no-video { font-size:11px; color:var(--muted); padding:20px; text-align:center; line-height:1.6; }
+
+    input[type="file"] { display:none; }
 
   @media (max-width:960px) {
     .main { grid-template-columns:1fr; padding:20px; }
@@ -634,6 +677,59 @@
             <span class="vol-label">Vol:</span>
             <input type="range" class="vol-slider" id="bgVolSlider" min="0" max="100" value="30" oninput="setBgVolume(this.value)"/>
             <span class="vol-val" id="bgVolVal">30%</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- SETA OVERLAY -->
+    <div class="arrow-strip" id="arrowStripEl">
+      <div class="arrow-strip-header">
+        <div class="arrow-strip-label">🎯 Seta sobre o vídeo</div>
+        <button class="arrow-btn-clear" onclick="clearArrow()">✕ Remover seta</button>
+      </div>
+      <div class="arrow-strip-body">
+
+        <!-- Upload da seta -->
+        <div class="arrow-upload-col">
+          <div class="arrow-empty-zone" id="arrowEmptyZone" onclick="document.getElementById('inArrow').click()">
+            <input type="file" id="inArrow" accept="image/*" onchange="arrowSelected(this.files[0])"/>
+            <span>🏹</span>
+            <span id="arrowZoneLabel">Upload seta<br>(PNG/SVG)</span>
+          </div>
+
+          <!-- Controles -->
+          <div class="arrow-controls" id="arrowControls" style="display:none;">
+            <div class="arrow-ctrl-row">
+              <label>Tamanho</label>
+              <input type="range" id="arrowSize" min="20" max="300" value="80" oninput="updateArrowOverlay()"/>
+              <span class="arrow-ctrl-val" id="arrowSizeVal">80px</span>
+            </div>
+            <div class="arrow-ctrl-row">
+              <label>Rotação</label>
+              <input type="range" id="arrowRot" min="0" max="360" value="0" oninput="updateArrowOverlay()"/>
+              <span class="arrow-ctrl-val" id="arrowRotVal">0°</span>
+            </div>
+            <div class="arrow-ctrl-row">
+              <label>Opacidade</label>
+              <input type="range" id="arrowOpacity" min="10" max="100" value="100" oninput="updateArrowOverlay()"/>
+              <span class="arrow-ctrl-val" id="arrowOpacityVal">100%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Preview com drag -->
+        <div class="arrow-preview-col">
+          <div class="arrow-canvas-wrap" id="arrowCanvasWrap">
+            <div class="arrow-no-video" id="arrowNoVideo">
+              Adicione um MP4 abaixo para posicionar a seta.<br>
+              <span style="font-size:10px;">A seta será sobreposta em todos os vídeos exportados.</span>
+            </div>
+            <canvas id="arrowCanvas" style="display:none;"></canvas>
+          </div>
+          <div class="arrow-hint" id="arrowHint" style="display:none;">
+            🖱 Arraste a seta para posicionar. Controles à esquerda para ajustar tamanho e rotação.
           </div>
         </div>
 
@@ -1084,6 +1180,12 @@ function addFilesToGroup(newFiles, fmt) {
   Array.from(newFiles).forEach(f => files.push({ file: f, group: fmt, newName: null }));
   renderGroups();
   checkAlignmentWarning();
+  // Atualiza preview da seta se ela existir e ainda não tiver preview de imagem
+  if (arrowImg) {
+    const canvas = document.getElementById('arrowCanvas');
+    const firstImg = files.find(f => isImageExt(f.file.name));
+    if (firstImg && canvas.width <= 400) renderArrowPreview(firstImg.file);
+  }
 }
 
 function removeFile(idx) {
@@ -1487,6 +1589,9 @@ async function convertImageToMp4(imgFile) {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0, W, H);
 
+  // Aplica seta se houver
+  if (arrowImg) applyArrowToCanvas(ctx, W, H);
+
   // Escolhe o melhor codec disponível
   const mimeType = ['video/webm;codecs=vp9,opus',
                     'video/webm;codecs=vp8,opus',
@@ -1549,6 +1654,186 @@ async function convertImageToMp4(imgFile) {
       try { recorder.stop(); } catch(e) {}
     }, DURATION * 1000);
   });
+}
+
+
+// ══════════════════════════════════════════════════════
+// SETA OVERLAY
+// ══════════════════════════════════════════════════════
+let arrowFile    = null;   // arquivo de imagem da seta
+let arrowImg     = null;   // HTMLImageElement carregado
+let arrowPos     = { x: 0.5, y: 0.5 };  // posição normalizada (0–1)
+let arrowDragging = false;
+let arrowDragOffset = { x: 0, y: 0 };
+
+function arrowSelected(file) {
+  if (!file) return;
+  arrowFile = file;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    arrowImg = img;
+    URL.revokeObjectURL(url);
+    document.getElementById('arrowZoneLabel').textContent = file.name;
+    document.getElementById('arrowEmptyZone').classList.add('has-file');
+    document.getElementById('arrowControls').style.display = 'flex';
+    document.getElementById('arrowHint').style.display = '';
+    // Se já tem um vídeo carregado nos arquivos, usa o primeiro como preview
+    const firstImg = files.find(f => isImageExt(f.file.name));
+    if (firstImg) {
+      renderArrowPreview(firstImg.file);
+    } else {
+      // Mostra canvas vazio com fundo escuro
+      renderArrowOnBlank();
+    }
+  };
+  img.src = url;
+}
+
+function clearArrow() {
+  arrowFile = null; arrowImg = null;
+  document.getElementById('arrowEmptyZone').classList.remove('has-file');
+  document.getElementById('arrowZoneLabel').innerHTML = 'Upload seta<br>(PNG/SVG)';
+  document.getElementById('arrowControls').style.display = 'none';
+  document.getElementById('arrowHint').style.display = 'none';
+  document.getElementById('arrowCanvas').style.display = 'none';
+  document.getElementById('arrowNoVideo').style.display = '';
+  document.getElementById('inArrow').value = '';
+}
+
+function renderArrowOnBlank() {
+  const canvas = document.getElementById('arrowCanvas');
+  const wrap   = document.getElementById('arrowCanvasWrap');
+  canvas.width  = 400;
+  canvas.height = 225;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#1a1a26';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  document.getElementById('arrowNoVideo').style.display = 'none';
+  canvas.style.display = 'block';
+  drawArrowOnCanvas(ctx, canvas.width, canvas.height);
+  setupArrowDrag(canvas);
+}
+
+function renderArrowPreview(imgFile) {
+  const url = URL.createObjectURL(imgFile);
+  const bg  = new Image();
+  bg.onload = () => {
+    URL.revokeObjectURL(url);
+    const canvas = document.getElementById('arrowCanvas');
+    canvas.width  = bg.naturalWidth;
+    canvas.height = bg.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bg, 0, 0);
+    document.getElementById('arrowNoVideo').style.display = 'none';
+    canvas.style.display = 'block';
+    drawArrowOnCanvas(ctx, canvas.width, canvas.height);
+    setupArrowDrag(canvas);
+  };
+  bg.src = url;
+}
+
+function drawArrowOnCanvas(ctx, W, H) {
+  if (!arrowImg) return;
+  const size    = parseInt(document.getElementById('arrowSize').value);
+  const rot     = parseInt(document.getElementById('arrowRot').value) * Math.PI / 180;
+  const opacity = parseInt(document.getElementById('arrowOpacity').value) / 100;
+  const cx = arrowPos.x * W;
+  const cy = arrowPos.y * H;
+  const ratio = arrowImg.naturalWidth / arrowImg.naturalHeight;
+  const w = size;
+  const h = size / ratio;
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.translate(cx, cy);
+  ctx.rotate(rot);
+  ctx.drawImage(arrowImg, -w / 2, -h / 2, w, h);
+  ctx.restore();
+}
+
+function updateArrowOverlay() {
+  document.getElementById('arrowSizeVal').textContent    = document.getElementById('arrowSize').value + 'px';
+  document.getElementById('arrowRotVal').textContent     = document.getElementById('arrowRot').value + '°';
+  document.getElementById('arrowOpacityVal').textContent = document.getElementById('arrowOpacity').value + '%';
+  redrawArrowCanvas();
+}
+
+function redrawArrowCanvas() {
+  const canvas = document.getElementById('arrowCanvas');
+  if (canvas.style.display === 'none') return;
+  const ctx = canvas.getContext('2d');
+  // Redesenha fundo
+  const firstImg = files.find(f => isImageExt(f.file.name));
+  if (firstImg) {
+    const url = URL.createObjectURL(firstImg.file);
+    const bg  = new Image();
+    bg.onload = () => {
+      URL.revokeObjectURL(url);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
+      drawArrowOnCanvas(ctx, canvas.width, canvas.height);
+    };
+    bg.src = url;
+  } else {
+    ctx.fillStyle = '#1a1a26';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawArrowOnCanvas(ctx, canvas.width, canvas.height);
+  }
+}
+
+function setupArrowDrag(canvas) {
+  // Remove listeners antigos
+  canvas.onmousedown  = null;
+  canvas.onmousemove  = null;
+  canvas.onmouseup    = null;
+  canvas.ontouchstart = null;
+  canvas.ontouchmove  = null;
+  canvas.ontouchend   = null;
+
+  function getPos(e) {
+    const rect  = canvas.getBoundingClientRect();
+    const scaleX = canvas.width  / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      x: (clientX - rect.left)  * scaleX,
+      y: (clientY - rect.top)   * scaleY
+    };
+  }
+
+  function startDrag(e) {
+    e.preventDefault();
+    const pos = getPos(e);
+    arrowDragOffset.x = pos.x - arrowPos.x * canvas.width;
+    arrowDragOffset.y = pos.y - arrowPos.y * canvas.height;
+    arrowDragging = true;
+  }
+
+  function moveDrag(e) {
+    if (!arrowDragging) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    arrowPos.x = Math.min(1, Math.max(0, (pos.x - arrowDragOffset.x) / canvas.width));
+    arrowPos.y = Math.min(1, Math.max(0, (pos.y - arrowDragOffset.y) / canvas.height));
+    redrawArrowCanvas();
+  }
+
+  function endDrag() { arrowDragging = false; }
+
+  canvas.addEventListener('mousedown',  startDrag);
+  canvas.addEventListener('mousemove',  moveDrag);
+  canvas.addEventListener('mouseup',    endDrag);
+  canvas.addEventListener('mouseleave', endDrag);
+  canvas.addEventListener('touchstart', startDrag, { passive: false });
+  canvas.addEventListener('touchmove',  moveDrag,  { passive: false });
+  canvas.addEventListener('touchend',   endDrag);
+}
+
+// Aplica seta a um canvas existente (usado na exportação)
+function applyArrowToCanvas(ctx, W, H) {
+  if (!arrowImg) return;
+  drawArrowOnCanvas(ctx, W, H);
 }
 
 // Overlay helpers
