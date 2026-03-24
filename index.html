@@ -304,6 +304,31 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   #loadingOverlay p { font-size:12px; color:var(--muted); }
 
+  /* ── PREVIEW MP4 ── */
+  .preview-mp4-wrap {
+    margin-top:10px; border-radius:8px; overflow:hidden;
+    background:#000; position:relative; display:none;
+  }
+  .preview-mp4-wrap video { display:block; width:100%; height:auto; border-radius:8px; }
+  .preview-mp4-label {
+    position:absolute; top:6px; left:8px;
+    background:rgba(0,0,0,0.6); color:var(--warn); font-size:9px;
+    font-weight:700; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:1px;
+  }
+  .preview-mp4-actions {
+    display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;
+  }
+  .btn-preview-gen {
+    background:rgba(251,191,36,0.12); border:1px solid rgba(251,191,36,0.35);
+    color:var(--warn); border-radius:7px; padding:6px 14px;
+    font-family:'Poppins',sans-serif; font-size:10px; font-weight:600;
+    cursor:pointer; transition:all 0.2s; text-transform:uppercase; letter-spacing:0.5px;
+    display:flex; align-items:center; gap:5px;
+  }
+  .btn-preview-gen:hover { background:rgba(251,191,36,0.2); }
+  .btn-preview-gen:disabled { opacity:0.4; cursor:not-allowed; }
+  .preview-gen-progress { font-size:10px; color:var(--muted); align-self:center; }
+
   /* ── SETA OVERLAY ── */
   .arrow-strip {
     background:var(--surface); border:1px solid var(--border);
@@ -731,6 +756,19 @@
           <div class="arrow-hint" id="arrowHint" style="display:none;">
             🖱 Arraste a seta para posicionar. Controles à esquerda para ajustar tamanho e rotação.
           </div>
+
+          <!-- Preview MP4 -->
+          <div class="preview-mp4-actions" id="previewMp4Actions" style="display:none;">
+            <button class="btn-preview-gen" id="btnGenPreview" onclick="generatePreviewMp4()">
+              ▶ Gerar Preview MP4
+            </button>
+            <span class="preview-gen-progress" id="previewGenProgress"></span>
+          </div>
+          <div class="preview-mp4-wrap" id="previewMp4Wrap">
+            <div class="preview-mp4-label">Preview 14s</div>
+            <video id="previewMp4Video" controls loop playsinline></video>
+          </div>
+
         </div>
 
       </div>
@@ -1699,6 +1737,7 @@ function arrowSelected(file) {
     document.getElementById('arrowEmptyZone').classList.add('has-file');
     document.getElementById('arrowControls').style.display = 'flex';
     document.getElementById('arrowHint').style.display = '';
+    document.getElementById('previewMp4Actions').style.display = 'flex';
     initArrowCanvas();
   };
 }
@@ -1711,6 +1750,10 @@ function clearArrow() {
   document.getElementById('arrowZoneLabel').innerHTML = 'Upload seta<br>(MP4)';
   document.getElementById('arrowControls').style.display = 'none';
   document.getElementById('arrowHint').style.display = 'none';
+  document.getElementById('previewMp4Actions').style.display = 'none';
+  document.getElementById('previewMp4Wrap').style.display = 'none';
+  const oldVid = document.getElementById('previewMp4Video');
+  if (oldVid.src) { URL.revokeObjectURL(oldVid.src); oldVid.src = ''; }
   document.getElementById('arrowCanvas').style.display = 'none';
   document.getElementById('arrowNoVideo').style.display = '';
   document.getElementById('inArrow').value = '';
@@ -1823,6 +1866,120 @@ function setupArrowDrag(canvas) {
   c.addEventListener('touchstart', startDrag, { passive: false });
   c.addEventListener('touchmove',  moveDrag,  { passive: false });
   c.addEventListener('touchend',   endDrag);
+}
+
+
+// ══════════════════════════════════════════════════════
+// PREVIEW MP4 — grava 14s do canvas animado
+// ══════════════════════════════════════════════════════
+async function generatePreviewMp4() {
+  const btn      = document.getElementById('btnGenPreview');
+  const progress = document.getElementById('previewGenProgress');
+  const wrap     = document.getElementById('previewMp4Wrap');
+  const vidEl    = document.getElementById('previewMp4Video');
+
+  // Pega a primeira imagem disponível nos grupos
+  const firstImgItem = files.find(f => isImageExt(f.file.name));
+  if (!firstImgItem && !arrowVideo) {
+    showToast('Adicione uma imagem nos grupos para gerar o preview.', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  progress.textContent = 'Gravando... 0s / 14s';
+  wrap.style.display = 'none';
+
+  const DURATION = 14;
+  const FPS      = 30;
+
+  // Monta canvas de exportação
+  let bgImg = null;
+  if (firstImgItem) {
+    bgImg = await loadImage(firstImgItem.file);
+  }
+
+  const W = bgImg ? (bgImg.naturalWidth  % 2 === 0 ? bgImg.naturalWidth  : bgImg.naturalWidth  - 1) : 480;
+  const H = bgImg ? (bgImg.naturalHeight % 2 === 0 ? bgImg.naturalHeight : bgImg.naturalHeight - 1) : 270;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  const mimeType = ['video/webm;codecs=vp9,opus',
+                    'video/webm;codecs=vp8,opus',
+                    'video/webm'].find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+
+  const stream = canvas.captureStream(FPS);
+
+  // Áudio
+  const audioCtx = new AudioContext();
+  const dest     = audioCtx.createMediaStreamDestination();
+  if (audioFile || bgAudioFile) {
+    const gainNar = audioCtx.createGain();
+    const gainBg  = audioCtx.createGain();
+    gainNar.gain.value = 1.0;
+    gainBg.gain.value  = bgVolume;
+    if (audioFile) {
+      const buf = await loadAudioBuffer(audioFile, audioCtx);
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf; src.connect(gainNar); gainNar.connect(dest); src.start(0);
+    }
+    if (bgAudioFile) {
+      const buf = await loadAudioBuffer(bgAudioFile, audioCtx);
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf; src.connect(gainBg); gainBg.connect(dest); src.start(0);
+    }
+    dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+  }
+
+  // Reinicia seta
+  if (arrowVideo) { arrowVideo.currentTime = 0; arrowVideo.play().catch(() => {}); }
+
+  // Loop de renderização
+  let rafId = null;
+  function drawFrame() {
+    ctx.clearRect(0, 0, W, H);
+    if (bgImg) ctx.drawImage(bgImg, 0, 0, W, H);
+    else { ctx.fillStyle = '#1a1a26'; ctx.fillRect(0, 0, W, H); }
+    if (arrowVideo) applyArrowToCanvas(ctx, W, H);
+    rafId = requestAnimationFrame(drawFrame);
+  }
+  rafId = requestAnimationFrame(drawFrame);
+
+  // Timer de progresso
+  const startTs = Date.now();
+  const progressInterval = setInterval(() => {
+    const elapsed = Math.min(DURATION, ((Date.now() - startTs) / 1000)).toFixed(0);
+    progress.textContent = `Gravando... ${elapsed}s / ${DURATION}s`;
+  }, 500);
+
+  const chunks   = [];
+  const recorder = new MediaRecorder(stream, { mimeType });
+  recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+  await new Promise(resolve => {
+    recorder.onstop = () => {
+      cancelAnimationFrame(rafId);
+      clearInterval(progressInterval);
+      audioCtx.close();
+      stream.getTracks().forEach(t => t.stop());
+      resolve();
+    };
+    recorder.start(100);
+    setTimeout(() => { try { recorder.stop(); } catch(e) {} }, DURATION * 1000);
+  });
+
+  // Exibe o vídeo gerado
+  const blob = new Blob(chunks, { type: mimeType });
+  const url  = URL.createObjectURL(blob);
+  if (vidEl.src) URL.revokeObjectURL(vidEl.src);
+  vidEl.src = url;
+  vidEl.load();
+  vidEl.play().catch(() => {});
+  wrap.style.display = 'block';
+  progress.textContent = '✓ Pronto!';
+  setTimeout(() => { progress.textContent = ''; }, 3000);
+  btn.disabled = false;
 }
 
 // Aplica seta ao canvas na exportação — desenha um frame do vídeo
