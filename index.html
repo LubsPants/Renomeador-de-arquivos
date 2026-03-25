@@ -1534,7 +1534,7 @@ async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error: e => { throw e; },
   });
-  videoEnc.configure({ codec: 'avc1.42001e', width: W, height: H, bitrate: 400_000, framerate: 1, avc: { format: 'annexb' } });
+  videoEnc.configure({ codec: 'avc1.640028', width: W, height: H, bitrate: 800_000, framerate: 1, avc: { format: 'annexb' } });
   const frame = new VideoFrame(canvas, { timestamp: 0, duration: DURATION_US });
   videoEnc.encode(frame, { keyFrame: true });
   frame.close();
