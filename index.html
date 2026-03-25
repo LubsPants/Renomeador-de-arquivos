@@ -1253,37 +1253,40 @@ async function downloadAll() {
   if (mp4Count > 0) {
     overlay.classList.add('show'); setProcBar(0); setProcFile('');
     setProcSub('Preparando áudio...');
-    _cachedAudioBuf = null; _cachedAudioKey = ''; // reset cache para novo lote
-    await warmAudioCache(14); // decodifica e mixa áudio uma única vez antes do loop
+    _cachedAudioBuf = null; _cachedAudioKey = '';
+    await warmAudioCache(14);
     setProcSub('Gerando MP4s...');
   }
 
   let saved = 0, mp4Done = 0;
   try {
     const paisDir = await rootDir.getDirectoryHandle(pais, { create: true });
-    // Processa cada formato em paralelo (FEED, ST, TIKTOK ao mesmo tempo)
-    await Promise.all(active.map(async fmt => {
+    // Processa sequencialmente — garante que cada arquivo é escrito completamente antes do próximo
+    for (const fmt of active) {
       const fmtDir = await paisDir.getDirectoryHandle(fmt, { create: true });
       for (const item of grouped[fmt]) {
         const needsMp4 = hasAnyAudio() && isImageExt(item.file.name);
         if (needsMp4) {
-          const mp4Data = await convertImageToMp4(item.file); // retorna Uint8Array
+          mp4Done++;
+          setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
+          setProcFile(item.newName);
+          setProcBar(Math.round((mp4Done / mp4Count) * 100));
+          const mp4Data = await convertImageToMp4(item.file);
           const mp4Name = item.newName.replace(/\.[^.]+$/, '.mp4');
           const fh = await fmtDir.getFileHandle(mp4Name, { create: true });
           const wr = await fh.createWritable();
           await wr.write(mp4Data);
           await wr.close();
-          mp4Done++;
-          setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
-          setProcBar(Math.round((mp4Done / mp4Count) * 100));
         } else {
           const fh = await fmtDir.getFileHandle(item.newName, { create: true });
-          const wr = await fh.createWritable(); await wr.write(item.file); await wr.close();
+          const wr = await fh.createWritable();
+          await wr.write(item.file);
+          await wr.close();
         }
         saved++;
         showToast(`Salvando... ${saved}/${renamed.length}`);
       }
-    }));
+    }
     overlay.classList.remove('show');
     showToast(`✓ ${saved} arquivo(s) salvos em ${pais}/${active.join(', ')}!`);
   } catch (err) {
@@ -1522,7 +1525,12 @@ async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
   }
   const Mux = window.Mp4Muxer;
   if (!Mux) throw new Error('mp4-muxer não carregou.');
-  const DURATION_US = DURATION * 1_000_000;
+  // Usa 1 fps — 1 keyframe por segundo, cada um com duração de 1s
+  // NÃO usar duration gigante num único frame — corrompe o timescale do mp4-muxer
+  const FPS = 1;
+  const FRAME_DUR_US = 1_000_000; // 1 segundo em microsegundos
+  const TOTAL_FRAMES = DURATION;  // 14 frames para 14 segundos
+
   const target = new Mux.ArrayBufferTarget();
   const muxer  = new Mux.Muxer({
     target,
@@ -1531,23 +1539,25 @@ async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
     fastStart: 'in-memory',
   });
 
-  // Vídeo: apenas 1 frame (imagem estática) com duração total do vídeo
-  // Seleciona o nível AVC correto baseado na resolução
-  // Level 3.0 (0x1e) = max 414720px, Level 4.0 (0x28) = max 2097152px, Level 5.1 (0x33) = max 9437184px
+  // Seleciona codec AVC correto pela resolução
   const pixelCount = W * H;
-  const avcCodec = pixelCount <= 414720 ? 'avc1.42001e'    // Level 3.0 até ~720p
-                 : pixelCount <= 2097152 ? 'avc1.640028'   // High 4.0 até 1080p/1350
-                 : 'avc1.640033';                          // High 5.1 acima de 1080p
+  const avcCodec = pixelCount <= 414720 ? 'avc1.42001e'
+                 : pixelCount <= 2097152 ? 'avc1.640028'
+                 : 'avc1.640033';
   const videoBitrate = pixelCount > 1000000 ? 1_200_000 : 800_000;
 
   const videoEnc = new VideoEncoder({
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error: e => { throw e; },
   });
-  videoEnc.configure({ codec: avcCodec, width: W, height: H, bitrate: videoBitrate, framerate: 1, avc: { format: 'annexb' } });
-  const frame = new VideoFrame(canvas, { timestamp: 0, duration: DURATION_US });
-  videoEnc.encode(frame, { keyFrame: true });
-  frame.close();
+  videoEnc.configure({ codec: avcCodec, width: W, height: H, bitrate: videoBitrate, framerate: FPS, avc: { format: 'annexb' } });
+
+  // Envia 14 frames de 1s cada — timescale normal, duração correta
+  for (let i = 0; i < TOTAL_FRAMES; i++) {
+    const frame = new VideoFrame(canvas, { timestamp: i * FRAME_DUR_US, duration: FRAME_DUR_US });
+    videoEnc.encode(frame, { keyFrame: true });
+    frame.close();
+  }
   await videoEnc.flush();
   videoEnc.close();
 
