@@ -702,6 +702,7 @@
 <!-- ffmpeg.wasm (single-thread, sem SharedArrayBuffer) -->
 <!-- mp4-muxer para muxing MP4 nativo -->
 <script src="https://unpkg.com/mp4-muxer@4.4.3/build/mp4-muxer.js"></script>
+<script>window._Mp4MuxerLoaded = typeof Mp4Muxer !== "undefined";</script>
 
 <!-- Firebase v9 compat -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -1256,27 +1257,27 @@ async function downloadAll() {
   let saved = 0, mp4Done = 0;
   try {
     const paisDir = await rootDir.getDirectoryHandle(pais, { create: true });
-    for (const fmt of active) {
+    // Processa cada formato em paralelo (FEED, ST, TIKTOK ao mesmo tempo)
+    await Promise.all(active.map(async fmt => {
       const fmtDir = await paisDir.getDirectoryHandle(fmt, { create: true });
       for (const item of grouped[fmt]) {
         const needsMp4 = hasAnyAudio() && isImageExt(item.file.name);
         if (needsMp4) {
-          mp4Done++;
-          setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
-          setProcFile(item.newName);
-          setProcBar(Math.round((mp4Done / mp4Count) * 100));
           const mp4Blob = await convertImageToMp4(item.file);
           const mp4Name = item.newName.replace(/\.[^.]+$/, '.mp4');
           const fh = await fmtDir.getFileHandle(mp4Name, { create: true });
           const wr = await fh.createWritable(); await wr.write(mp4Blob); await wr.close();
+          mp4Done++;
+          setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
+          setProcBar(Math.round((mp4Done / mp4Count) * 100));
         } else {
           const fh = await fmtDir.getFileHandle(item.newName, { create: true });
           const wr = await fh.createWritable(); await wr.write(item.file); await wr.close();
         }
         saved++;
-        if (mp4Count === 0) showToast(`Salvando... ${saved}/${renamed.length}`);
+        showToast(`Salvando... ${saved}/${renamed.length}`);
       }
-    }
+    }));
     overlay.classList.remove('show');
     showToast(`✓ ${saved} arquivo(s) salvos em ${pais}/${active.join(', ')}!`);
   } catch (err) {
@@ -1486,7 +1487,6 @@ async function warmAudioCache(durationSecs) {
 
 async function convertImageToMp4(imgFile) {
   const DURATION = 14;
-  // Carrega imagem e reutiliza áudio cacheado em paralelo
   const [img, audioBuf] = await Promise.all([
     loadImage(imgFile),
     buildAudioBuffer(DURATION),
@@ -1498,17 +1498,20 @@ async function convertImageToMp4(imgFile) {
   canvas.width = W; canvas.height = H;
   canvas.getContext('2d').drawImage(img, 0, 0, W, H);
 
-  if (typeof VideoEncoder !== 'undefined' && typeof Mp4Muxer !== 'undefined') {
-    try { return await encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION); }
-    catch(e) { console.warn('WebCodecs falhou, usando MediaRecorder:', e.message); }
+  // Tenta WebCodecs — se falhar, lança erro visível em vez de cair no MediaRecorder lento
+  if (typeof VideoEncoder !== 'undefined') {
+    return await encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION);
   }
-  return encodeWithMediaRecorder(canvas, audioBuf, DURATION);
+  throw new Error('VideoEncoder não disponível neste browser. Use Chrome 94+.');
 }
 
 async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
+  // Resolve Mp4Muxer independente de como o script o expõe
+  const Mux = window.Mp4Muxer || window['mp4-muxer'];
+  if (!Mux) throw new Error('mp4-muxer não carregou');
   const DURATION_US = DURATION * 1_000_000;
-  const target = new Mp4Muxer.ArrayBufferTarget();
-  const muxer  = new Mp4Muxer.Muxer({
+  const target = new Mux.ArrayBufferTarget();
+  const muxer  = new Mux.Muxer({
     target,
     video: { codec: 'avc', width: W, height: H },
     ...(audioBuf ? { audio: { codec: 'aac', sampleRate: audioBuf.sampleRate, numberOfChannels: audioBuf.numberOfChannels } } : {}),
