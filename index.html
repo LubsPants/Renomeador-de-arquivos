@@ -700,10 +700,10 @@
 <div class="toast" id="toast"></div>
 
 <!-- ffmpeg.wasm (single-thread, sem SharedArrayBuffer) -->
-<!-- mp4-muxer: importa como ES module e expõe no window -->
+<!-- mp4-muxer@5.2.2 via .mjs — testado e funcionando no Chrome -->
 <script type="module">
-  import * as Mp4Muxer from 'https://unpkg.com/mp4-muxer@4.4.3/build/mp4-muxer.js';
-  window.Mp4Muxer = Mp4Muxer;
+  import { Muxer, ArrayBufferTarget, StreamTarget } from 'https://unpkg.com/mp4-muxer@5.2.2/build/mp4-muxer.mjs';
+  window.Mp4Muxer = { Muxer, ArrayBufferTarget, StreamTarget };
   window._mp4MuxerReady = true;
   window.dispatchEvent(new Event('mp4muxer-ready'));
 </script>
@@ -1557,7 +1557,7 @@ async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
       for (let s = 0; s < size; s++)
         for (let ch = 0; ch < NCHAN; ch++)
           interleaved[s * NCHAN + ch] = channels[ch][offset + s] || 0;
-      const ad = new AudioData({ format: 'f32-interleaved', sampleRate: SR, numberOfFrames: size, numberOfChannels: NCHAN, timestamp: Math.round(offset / SR * 1_000_000), data: interleaved });
+      const ad = new AudioData({ format: 'f32', sampleRate: SR, numberOfFrames: size, numberOfChannels: NCHAN, timestamp: Math.round(offset / SR * 1_000_000), data: interleaved });
       audioEnc.encode(ad); ad.close();
     }
     await audioEnc.flush();
