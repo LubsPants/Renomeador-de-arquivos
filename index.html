@@ -1530,11 +1530,19 @@ async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
   });
 
   // Vídeo: apenas 1 frame (imagem estática) com duração total do vídeo
+  // Seleciona o nível AVC correto baseado na resolução
+  // Level 3.0 (0x1e) = max 414720px, Level 4.0 (0x28) = max 2097152px, Level 5.1 (0x33) = max 9437184px
+  const pixelCount = W * H;
+  const avcCodec = pixelCount <= 414720 ? 'avc1.42001e'    // Level 3.0 até ~720p
+                 : pixelCount <= 2097152 ? 'avc1.640028'   // High 4.0 até 1080p/1350
+                 : 'avc1.640033';                          // High 5.1 acima de 1080p
+  const videoBitrate = pixelCount > 1000000 ? 1_200_000 : 800_000;
+
   const videoEnc = new VideoEncoder({
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error: e => { throw e; },
   });
-  videoEnc.configure({ codec: 'avc1.640028', width: W, height: H, bitrate: 800_000, framerate: 1, avc: { format: 'annexb' } });
+  videoEnc.configure({ codec: avcCodec, width: W, height: H, bitrate: videoBitrate, framerate: 1, avc: { format: 'annexb' } });
   const frame = new VideoFrame(canvas, { timestamp: 0, duration: DURATION_US });
   videoEnc.encode(frame, { keyFrame: true });
   frame.close();
