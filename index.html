@@ -700,8 +700,13 @@
 <div class="toast" id="toast"></div>
 
 <!-- ffmpeg.wasm (single-thread, sem SharedArrayBuffer) -->
-<!-- mp4-muxer UMD — expõe Mp4Muxer diretamente no window -->
-<script src="https://unpkg.com/mp4-muxer@4.4.3/build/mp4-muxer.umd.js"></script>
+<!-- mp4-muxer: importa como ES module e expõe no window -->
+<script type="module">
+  import * as Mp4Muxer from 'https://unpkg.com/mp4-muxer@4.4.3/build/mp4-muxer.js';
+  window.Mp4Muxer = Mp4Muxer;
+  window._mp4MuxerReady = true;
+  window.dispatchEvent(new Event('mp4muxer-ready'));
+</script>
 
 <!-- Firebase v9 compat -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -1506,8 +1511,15 @@ async function convertImageToMp4(imgFile) {
 
 async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
   // Aguarda Mp4Muxer carregar (módulo ES é assíncrono)
+  // Aguarda o módulo ES carregar (dispara evento quando pronto)
+  if (!window._mp4MuxerReady) {
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('mp4-muxer timeout ao carregar')), 10000);
+      window.addEventListener('mp4muxer-ready', () => { clearTimeout(t); res(); }, { once: true });
+    });
+  }
   const Mux = window.Mp4Muxer;
-  if (!Mux) throw new Error('mp4-muxer não carregou. Verifique a conexão.');
+  if (!Mux) throw new Error('mp4-muxer não carregou.');
   const DURATION_US = DURATION * 1_000_000;
   const target = new Mux.ArrayBufferTarget();
   const muxer  = new Mux.Muxer({
