@@ -700,9 +700,8 @@
 <div class="toast" id="toast"></div>
 
 <!-- ffmpeg.wasm (single-thread, sem SharedArrayBuffer) -->
-<!-- mp4-muxer para muxing MP4 nativo -->
-<script src="https://unpkg.com/mp4-muxer@4.4.3/build/mp4-muxer.js"></script>
-<script>window._Mp4MuxerLoaded = typeof Mp4Muxer !== "undefined";</script>
+<!-- mp4-muxer UMD — expõe Mp4Muxer diretamente no window -->
+<script src="https://unpkg.com/mp4-muxer@4.4.3/build/mp4-muxer.umd.js"></script>
 
 <!-- Firebase v9 compat -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -1506,9 +1505,9 @@ async function convertImageToMp4(imgFile) {
 }
 
 async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
-  // Resolve Mp4Muxer independente de como o script o expõe
-  const Mux = window.Mp4Muxer || window['mp4-muxer'];
-  if (!Mux) throw new Error('mp4-muxer não carregou');
+  // Aguarda Mp4Muxer carregar (módulo ES é assíncrono)
+  const Mux = window.Mp4Muxer;
+  if (!Mux) throw new Error('mp4-muxer não carregou. Verifique a conexão.');
   const DURATION_US = DURATION * 1_000_000;
   const target = new Mux.ArrayBufferTarget();
   const muxer  = new Mux.Muxer({
