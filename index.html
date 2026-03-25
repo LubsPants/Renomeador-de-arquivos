@@ -1514,6 +1514,33 @@ async function convertImageToMp4(imgFile) {
   throw new Error('VideoEncoder não disponível neste browser. Use Chrome 94+.');
 }
 
+
+// ── Corrige bug do mp4-muxer: mdhd timescale incorreto ──────────────
+// O mp4-muxer gera timescale errado no mdhd, o que faz o macOS não conseguir
+// ler a duração do vídeo corretamente. Corrige para valores padrão.
+function fixMp4Timescale(uint8Array, durationSecs) {
+  // Corrige o bug do mp4-muxer@5 onde mdhd.duration fica com valor absurdo.
+  // Fix testado no browser: manter o timescale original do mdhd,
+  // e recalcular duration = timescale * durationSecs (valor real do vídeo).
+  const view = new DataView(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength);
+  const readStr = (pos) => String.fromCharCode(uint8Array[pos],uint8Array[pos+1],uint8Array[pos+2],uint8Array[pos+3]);
+
+  for (let pos = 0; pos < uint8Array.length - 8; pos++) {
+    const box = readStr(pos + 4);
+    if (box === 'mvhd') {
+      // mvhd: usa timescale=1000, duration=durationSecs*1000
+      view.setUint32(pos + 20, 1000, false);
+      view.setUint32(pos + 24, Math.round(durationSecs * 1000), false);
+    }
+    if (box === 'mdhd') {
+      // mdhd: mantém timescale original, corrige duration = timescale * durationSecs
+      const ts = view.getUint32(pos + 20, false);
+      view.setUint32(pos + 24, Math.round(ts * durationSecs), false);
+    }
+  }
+  return uint8Array;
+}
+
 async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
   // Aguarda Mp4Muxer carregar (módulo ES é assíncrono)
   // Aguarda o módulo ES carregar (dispara evento quando pronto)
@@ -1550,7 +1577,7 @@ async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error: e => { throw e; },
   });
-  videoEnc.configure({ codec: avcCodec, width: W, height: H, bitrate: videoBitrate, framerate: FPS, avc: { format: 'annexb' } });
+  videoEnc.configure({ codec: avcCodec, width: W, height: H, bitrate: videoBitrate, framerate: FPS, avc: { format: 'avc' } });
 
   // Envia 14 frames de 1s cada — timescale normal, duração correta
   for (let i = 0; i < TOTAL_FRAMES; i++) {
@@ -1584,8 +1611,9 @@ async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
     audioEnc.close();
   }
   muxer.finalize();
-  // Retorna Uint8Array diretamente — mais confiável para FileSystem API
-  return new Uint8Array(target.buffer.slice(0));
+  // Corrige timescale do mdhd e retorna Uint8Array
+  const result = new Uint8Array(target.buffer.slice(0));
+  return fixMp4Timescale(result, DURATION);
 }
 
 async function encodeWithMediaRecorder(canvas, audioBuf, DURATION) {
