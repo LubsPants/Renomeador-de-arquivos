@@ -1267,10 +1267,12 @@ async function downloadAll() {
       for (const item of grouped[fmt]) {
         const needsMp4 = hasAnyAudio() && isImageExt(item.file.name);
         if (needsMp4) {
-          const mp4Blob = await convertImageToMp4(item.file);
+          const mp4Data = await convertImageToMp4(item.file); // retorna Uint8Array
           const mp4Name = item.newName.replace(/\.[^.]+$/, '.mp4');
           const fh = await fmtDir.getFileHandle(mp4Name, { create: true });
-          const wr = await fh.createWritable(); await wr.write(mp4Blob); await wr.close();
+          const wr = await fh.createWritable();
+          await wr.write(mp4Data);
+          await wr.close();
           mp4Done++;
           setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
           setProcBar(Math.round((mp4Done / mp4Count) * 100));
@@ -1572,7 +1574,8 @@ async function encodeWithWebCodecs(canvas, audioBuf, W, H, DURATION) {
     audioEnc.close();
   }
   muxer.finalize();
-  return new Blob([target.buffer.slice(0)], { type: 'video/mp4' });
+  // Retorna Uint8Array diretamente — mais confiável para FileSystem API
+  return new Uint8Array(target.buffer.slice(0));
 }
 
 async function encodeWithMediaRecorder(canvas, audioBuf, DURATION) {
