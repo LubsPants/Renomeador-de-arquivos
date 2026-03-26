@@ -1252,15 +1252,9 @@ async function downloadAll() {
   const overlay = document.getElementById('processingOverlay');
   if (mp4Count > 0) {
     overlay.classList.add('show'); setProcBar(0); setProcFile('');
-    const hasVideoFiles = renamed.some(i => !isImageExt(i.file.name));
-    if (hasVideoFiles) {
-      setProcSub('Carregando FFmpeg...');
-      await getFFmpeg();
-    } else {
-      setProcSub('Preparando áudio...');
-      _cachedAudioBuf = null; _cachedAudioKey = '';
-      await warmAudioCache(14);
-    }
+    setProcSub('Preparando áudio...');
+    _cachedAudioBuf = null; _cachedAudioKey = '';
+    await warmAudioCache(14);
     setProcSub('Gerando MP4s...');
   }
 
@@ -1278,8 +1272,8 @@ async function downloadAll() {
           setProcFile(item.newName);
           setProcBar(Math.round((mp4Done / mp4Count) * 100));
           const outData = isImageExt(item.file.name)
-            ? await convertImageToMp4(item.file)   // WebCodecs — sem download
-            : await processWithFFmpeg(item.file);  // FFmpeg — só para vídeos
+            ? await convertImageToMp4(item.file)    // WebCodecs — instantâneo
+            : await recordVideoWithAudio(item.file); // MediaRecorder — nativo
           const outName = item.newName.replace(/\.[^.]+$/, '.mp4');
           const fh = await fmtDir.getFileHandle(outName, { create: true });
           const wr = await fh.createWritable();
@@ -1575,6 +1569,73 @@ async function processWithFFmpeg(mediaFile) {
   try { await ff.deleteFile('out.mp4');   } catch {}
 
   return blob;
+}
+
+// ══════════════════════════════════════════════════════
+// VÍDEO COM ÁUDIO — MediaRecorder (nativo, sem FFmpeg)
+// ══════════════════════════════════════════════════════
+async function recordVideoWithAudio(videoFile) {
+  const DURATION = 14;
+  const audioBuf = await buildAudioBuffer(DURATION);
+  const url      = URL.createObjectURL(videoFile);
+
+  const video = document.createElement('video');
+  video.src   = url;
+  video.muted = true;
+  video.loop  = true;
+  await new Promise((res, rej) => {
+    video.onloadedmetadata = res;
+    video.onerror = () => rej(new Error('Falha ao carregar vídeo'));
+    setTimeout(() => rej(new Error('Timeout ao carregar vídeo')), 15000);
+  });
+
+  const W = (video.videoWidth  || 1280) & ~1;
+  const H = (video.videoHeight || 720)  & ~1;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  const stream = canvas.captureStream(30);
+
+  if (audioBuf) {
+    const playCtx = new AudioContext({ sampleRate: audioBuf.sampleRate });
+    if (playCtx.state === 'suspended') await playCtx.resume();
+    const src  = playCtx.createBufferSource();
+    const dest = playCtx.createMediaStreamDestination();
+    src.buffer = audioBuf;
+    src.connect(dest);
+    src.start(0);
+    dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+  }
+
+  await video.play();
+  const drawId = setInterval(() => ctx.drawImage(video, 0, 0, W, H), 33);
+
+  const mime   = ['video/mp4;codecs=avc1,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm']
+                   .find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+  const chunks = [];
+  const rec    = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_500_000 });
+  rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  rec.start(250);
+
+  const t0 = Date.now();
+  const progId = setInterval(() => {
+    const elapsed = (Date.now() - t0) / 1000;
+    setProcBar(Math.min(99, Math.round(elapsed / DURATION * 100)));
+    setProcFile(`${elapsed.toFixed(1)}s / ${DURATION}s`);
+  }, 200);
+
+  await new Promise(r => setTimeout(r, DURATION * 1000));
+
+  clearInterval(drawId);
+  clearInterval(progId);
+  video.pause();
+  URL.revokeObjectURL(url);
+  rec.stop();
+  await new Promise(r => { rec.onstop = r; });
+  stream.getTracks().forEach(t => t.stop());
+
+  return new Blob(chunks, { type: mime });
 }
 
 // ══════════════════════════════════════════════════════
