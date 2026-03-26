@@ -1440,6 +1440,29 @@ function setBgVolume(val) {
 // ══════════════════════════════════════════════════════
 // FFMPEG.WASM — CARREGAMENTO E PROCESSAMENTO
 // ══════════════════════════════════════════════════════
+// Faz fetch com barra de progresso em bytes
+async function fetchWithProgress(url, mimeType, label) {
+  setProcSub(label);
+  setProcBar(0);
+  setProcFile('');
+  const resp  = await fetch(url);
+  const total = parseInt(resp.headers.get('content-length') || '0');
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    if (total > 0) {
+      setProcBar(Math.round(loaded / total * 100));
+      setProcFile(`${(loaded / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`);
+    }
+  }
+  return URL.createObjectURL(new Blob(chunks, { type: mimeType }));
+}
+
 async function getFFmpeg() {
   if (_ffmpegLoaded) return _ffmpegInst;
 
@@ -1448,11 +1471,34 @@ async function getFFmpeg() {
   window._ff_fetch = fetchFile;
 
   _ffmpegInst = new FFmpeg();
-  await _ffmpegInst.load({
-    coreURL:   await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/esm/ffmpeg-core.js',     'text/javascript'),
-    wasmURL:   await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/esm/ffmpeg-core.wasm',   'application/wasm'),
-    workerURL: await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/esm/ffmpeg-core.worker.js', 'text/javascript'),
+
+  // Progresso durante encoding (atualiza barra com tempo FFmpeg)
+  _ffmpegInst.on('log', ({ message }) => {
+    const m = message.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d+)/);
+    if (m) {
+      const s = parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseFloat(m[3]);
+      setProcBar(Math.min(99, Math.round(s / 14 * 100)));
+      setProcFile(`${s.toFixed(1)}s / 14s`);
+    }
   });
+
+  const coreURL   = await fetchWithProgress(
+    'https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/esm/ffmpeg-core.js',
+    'text/javascript', 'Baixando FFmpeg core.js...'
+  );
+  const wasmURL   = await fetchWithProgress(
+    'https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/esm/ffmpeg-core.wasm',
+    'application/wasm', 'Baixando FFmpeg core.wasm (~30MB)...'
+  );
+  const workerURL = await fetchWithProgress(
+    'https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/esm/ffmpeg-core.worker.js',
+    'text/javascript', 'Baixando FFmpeg worker...'
+  );
+
+  setProcSub('Inicializando FFmpeg...');
+  setProcBar(0); setProcFile('');
+  await _ffmpegInst.load({ coreURL, wasmURL, workerURL });
+
   _ffmpegLoaded = true;
   return _ffmpegInst;
 }
@@ -1516,6 +1562,7 @@ async function processWithFFmpeg(mediaFile) {
   // Vídeo: re-encode com libx264 para garantir compatibilidade e timestamps corretos
   args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-t', '14', 'out.mp4');
 
+  setProcBar(0); setProcFile('Encodando...');
   await ff.exec(args);
 
   const raw  = await ff.readFile('out.mp4');
