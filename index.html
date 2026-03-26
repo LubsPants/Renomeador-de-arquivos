@@ -1085,8 +1085,8 @@ function buildName(origName, fmt, num) {
   const frente = document.getElementById('selFrente').value;
   const tipo   = document.getElementById('selTipo').value;
   const nome   = document.getElementById('userName').value.trim().toUpperCase() || 'NOME';
-  // Se há áudio carregado e o arquivo é imagem, a saída será MP4
-  const ext = (hasAnyAudio() && isImageExt(origName)) ? 'mp4' : getExt(origName);
+  // Se há áudio carregado, a saída sempre será MP4 (imagem ou vídeo)
+  const ext = hasAnyAudio() ? 'mp4' : getExt(origName);
   return `${pad(num)}_${tipo}_${frente}_${pais}_${fmt}_${nome}.${ext}`;
 }
 
@@ -1152,7 +1152,7 @@ function renderGroups() {
       const ext = getExt(item.file.name);
       const div = document.createElement('div');
       div.className = 'file-chip' + (item.newName ? ' renamed' : '');
-      const willBeMp4 = hasAnyAudio() && isImageExt(item.file.name);
+      const willBeMp4 = hasAnyAudio();
       div.innerHTML = `
         <div class="chip-icon ${ext}">${getIcon(ext)}</div>
         <div class="chip-info">
@@ -1234,7 +1234,7 @@ async function downloadAll() {
   const grouped = { FEED: [], ST: [], TIKTOK: [] };
   renamed.forEach(item => grouped[item.group].push(item));
   const active  = FORMATOS.filter(f => grouped[f].length > 0);
-  const mp4Count = hasAnyAudio() ? renamed.filter(i => isImageExt(i.file.name)).length : 0;
+  const mp4Count = hasAnyAudio() ? renamed.length : 0;
 
   if (!('showDirectoryPicker' in window)) {
     showToast('Use Chrome ou Edge para salvar pastas.', 'error'); return;
@@ -1252,9 +1252,8 @@ async function downloadAll() {
   const overlay = document.getElementById('processingOverlay');
   if (mp4Count > 0) {
     overlay.classList.add('show'); setProcBar(0); setProcFile('');
-    setProcSub('Preparando áudio...');
-    _cachedAudioBuf = null; _cachedAudioKey = '';
-    await warmAudioCache(14);
+    setProcSub('Carregando FFmpeg...');
+    await getFFmpeg();
     setProcSub('Gerando MP4s...');
   }
 
@@ -1265,17 +1264,17 @@ async function downloadAll() {
     for (const fmt of active) {
       const fmtDir = await paisDir.getDirectoryHandle(fmt, { create: true });
       for (const item of grouped[fmt]) {
-        const needsMp4 = hasAnyAudio() && isImageExt(item.file.name);
-        if (needsMp4) {
+        const needsProcessing = hasAnyAudio();
+        if (needsProcessing) {
           mp4Done++;
           setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
           setProcFile(item.newName);
           setProcBar(Math.round((mp4Done / mp4Count) * 100));
-          const mp4Data = await convertImageToMp4(item.file);
-          const mp4Name = item.newName.replace(/\.[^.]+$/, '.mp4');
-          const fh = await fmtDir.getFileHandle(mp4Name, { create: true });
+          const blob    = await processWithFFmpeg(item.file);
+          const outName = item.newName.replace(/\.[^.]+$/, '.mp4');
+          const fh = await fmtDir.getFileHandle(outName, { create: true });
           const wr = await fh.createWritable();
-          await wr.write(mp4Data);
+          await wr.write(blob);
           await wr.close();
         } else {
           const fh = await fmtDir.getFileHandle(item.newName, { create: true });
@@ -1334,7 +1333,10 @@ document.getElementById('userName').addEventListener('input', updatePreviews);
 let audioFile   = null;   // narração
 let bgAudioFile = null;   // fundo
 let bgVolume    = 0.30;   // 0.0–1.0
-// ffmpeg removido — usando WebCodecs
+
+// FFmpeg.wasm — carregado sob demanda
+let _ffmpegLoaded = false;
+let _ffmpegInst   = null;
 
 function hasAnyAudio() { return !!(audioFile || bgAudioFile); }
 
@@ -1424,6 +1426,110 @@ function clearBg() {
 function setBgVolume(val) {
   bgVolume = parseInt(val) / 100;
   document.getElementById('bgVolVal').textContent = val + '%';
+}
+
+// ══════════════════════════════════════════════════════
+// FFMPEG.WASM — CARREGAMENTO E PROCESSAMENTO
+// ══════════════════════════════════════════════════════
+async function getFFmpeg() {
+  if (_ffmpegLoaded) return _ffmpegInst;
+
+  const { FFmpeg }               = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/esm/index.js');
+  const { fetchFile, toBlobURL } = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js');
+  window._ff_fetch = fetchFile;
+
+  _ffmpegInst = new FFmpeg();
+  await _ffmpegInst.load({
+    coreURL: await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js',  'text/javascript'),
+    wasmURL: await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm', 'application/wasm'),
+  });
+  _ffmpegLoaded = true;
+  return _ffmpegInst;
+}
+
+async function processWithFFmpeg(mediaFile) {
+  const ff        = await getFFmpeg();
+  const fetchFile = window._ff_fetch;
+  const ext       = getExt(mediaFile.name);
+  const isImg     = isImageExt(mediaFile.name);
+
+  // Escreve arquivos no VFS do FFmpeg
+  await ff.writeFile(`in.${ext}`, await fetchFile(mediaFile));
+  if (audioFile)   await ff.writeFile('nar', await fetchFile(audioFile));
+  if (bgAudioFile) await ff.writeFile('bg',  await fetchFile(bgAudioFile));
+
+  const args = [];
+
+  // Input 0: mídia — imagem em loop estático ou vídeo em loop
+  if (isImg) {
+    args.push('-loop', '1', '-framerate', '1', '-i', `in.${ext}`);
+  } else {
+    args.push('-stream_loop', '-1', '-i', `in.${ext}`);
+  }
+
+  // Inputs de áudio (índice dinâmico)
+  let narIdx = -1, bgIdx = -1, nextIdx = 1;
+  if (audioFile)   { narIdx = nextIdx++; args.push('-i', 'nar'); }
+  if (bgAudioFile) { bgIdx  = nextIdx++; args.push('-i', 'bg');  }
+
+  // Monta filter_complex
+  const filters   = [];
+  const outLabels = [];
+
+  if (narIdx >= 0) {
+    // Narração: loudnorm + fade in/out
+    filters.push(
+      `[${narIdx}:a]loudnorm=I=-16:TP=-1.5:LRA=11,` +
+      `afade=t=in:st=0:d=0.5,afade=t=out:st=12.5:d=1[nar]`
+    );
+    outLabels.push('[nar]');
+  }
+  if (bgIdx >= 0) {
+    // Fundo: loop automático, volume reduzido, fade in/out
+    filters.push(
+      `[${bgIdx}:a]aloop=loop=-1:size=0,atrim=duration=14,` +
+      `volume=${bgVolume},afade=t=in:st=0:d=0.5,afade=t=out:st=12.5:d=1[bg]`
+    );
+    outLabels.push('[bg]');
+  }
+
+  let aMap = '';
+  if (outLabels.length === 2) {
+    // Mix narração + fundo
+    filters.push(`${outLabels.join('')}amix=inputs=2:duration=longest:normalize=0[a]`);
+    aMap = '[a]';
+  } else if (outLabels.length === 1) {
+    // Único áudio — renomeia label para [a]
+    filters[filters.length - 1] = filters[filters.length - 1].replace(/\[(nar|bg)\]$/, '[a]');
+    aMap = '[a]';
+  }
+
+  if (filters.length > 0) {
+    args.push(
+      '-filter_complex', filters.join(';'),
+      '-map', '0:v',
+      '-map', aMap,
+      '-c:a', 'aac', '-b:a', '128k'
+    );
+  } else {
+    args.push('-map', '0:v');
+  }
+
+  // Vídeo: re-encode com libx264 para garantir compatibilidade e timestamps corretos
+  args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-t', '14', 'out.mp4');
+
+  await ff.exec(args);
+
+  const raw  = await ff.readFile('out.mp4');
+  const blob = new Blob([raw], { type: 'video/mp4' });
+
+  // Limpa VFS
+  try { await ff.deleteFile(`in.${ext}`); } catch {}
+  try { await ff.deleteFile('nar');       } catch {}
+  try { await ff.deleteFile('bg');        } catch {}
+  try { await ff.deleteFile('out.mp4');   } catch {}
+
+  return blob;
 }
 
 // ══════════════════════════════════════════════════════
