@@ -1440,8 +1440,9 @@ async function getFFmpeg() {
 
   _ffmpegInst = new FFmpeg();
   await _ffmpegInst.load({
-    coreURL: await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js',  'text/javascript'),
-    wasmURL: await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm', 'application/wasm'),
+    coreURL:   await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/esm/ffmpeg-core.js',     'text/javascript'),
+    wasmURL:   await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/esm/ffmpeg-core.wasm',   'application/wasm'),
+    workerURL: await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/esm/ffmpeg-core.worker.js', 'text/javascript'),
   });
   _ffmpegLoaded = true;
   return _ffmpegInst;
@@ -1473,42 +1474,30 @@ async function processWithFFmpeg(mediaFile) {
   if (bgAudioFile) { bgIdx  = nextIdx++; args.push('-i', 'bg');  }
 
   // Monta filter_complex
-  const filters   = [];
-  const outLabels = [];
-
-  if (narIdx >= 0) {
-    // Narração: loudnorm + fade in/out
-    filters.push(
-      `[${narIdx}:a]loudnorm=I=-16:TP=-1.5:LRA=11,` +
-      `afade=t=in:st=0:d=0.5,afade=t=out:st=12.5:d=1[nar]`
-    );
-    outLabels.push('[nar]');
-  }
-  if (bgIdx >= 0) {
-    // Fundo: loop automático, volume reduzido, fade in/out
-    filters.push(
-      `[${bgIdx}:a]aloop=loop=-1:size=0,atrim=duration=14,` +
-      `volume=${bgVolume},afade=t=in:st=0:d=0.5,afade=t=out:st=12.5:d=1[bg]`
-    );
-    outLabels.push('[bg]');
-  }
-
+  const filters = [];
   let aMap = '';
-  if (outLabels.length === 2) {
-    // Mix narração + fundo
-    filters.push(`${outLabels.join('')}amix=inputs=2:duration=longest:normalize=0[a]`);
-    aMap = '[a]';
-  } else if (outLabels.length === 1) {
-    // Único áudio — renomeia label para [a]
-    filters[filters.length - 1] = filters[filters.length - 1].replace(/\[(nar|bg)\]$/, '[a]');
-    aMap = '[a]';
+
+  if (narIdx >= 0 && bgIdx >= 0) {
+    // Narração + fundo: processa cada um e mixa
+    filters.push(`[${narIdx}:a]loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.5,afade=t=out:st=12.5:d=1[nar]`);
+    filters.push(`[${bgIdx}:a]aloop=loop=-1:size=0,atrim=duration=14,volume=${bgVolume},afade=t=in:st=0:d=0.5,afade=t=out:st=12.5:d=1[bg]`);
+    filters.push(`[nar][bg]amix=inputs=2:duration=longest:normalize=0[audio_final]`);
+    aMap = '[audio_final]';
+  } else if (narIdx >= 0) {
+    // Apenas narração
+    filters.push(`[${narIdx}:a]loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.5,afade=t=out:st=12.5:d=1[audio_final]`);
+    aMap = '[audio_final]';
+  } else if (bgIdx >= 0) {
+    // Apenas fundo
+    filters.push(`[${bgIdx}:a]aloop=loop=-1:size=0,atrim=duration=14,volume=${bgVolume},afade=t=in:st=0:d=0.5,afade=t=out:st=12.5:d=1[audio_final]`);
+    aMap = '[audio_final]';
   }
 
   if (filters.length > 0) {
     args.push(
       '-filter_complex', filters.join(';'),
       '-map', '0:v',
-      '-map', aMap,
+      '-map', '[audio_final]',
       '-c:a', 'aac', '-b:a', '128k'
     );
   } else {
