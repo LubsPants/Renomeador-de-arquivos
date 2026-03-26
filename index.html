@@ -1252,8 +1252,15 @@ async function downloadAll() {
   const overlay = document.getElementById('processingOverlay');
   if (mp4Count > 0) {
     overlay.classList.add('show'); setProcBar(0); setProcFile('');
-    setProcSub('Carregando FFmpeg...');
-    await getFFmpeg();
+    const hasVideoFiles = renamed.some(i => !isImageExt(i.file.name));
+    if (hasVideoFiles) {
+      setProcSub('Carregando FFmpeg...');
+      await getFFmpeg();
+    } else {
+      setProcSub('Preparando áudio...');
+      _cachedAudioBuf = null; _cachedAudioKey = '';
+      await warmAudioCache(14);
+    }
     setProcSub('Gerando MP4s...');
   }
 
@@ -1270,11 +1277,13 @@ async function downloadAll() {
           setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
           setProcFile(item.newName);
           setProcBar(Math.round((mp4Done / mp4Count) * 100));
-          const blob    = await processWithFFmpeg(item.file);
+          const outData = isImageExt(item.file.name)
+            ? await convertImageToMp4(item.file)   // WebCodecs — sem download
+            : await processWithFFmpeg(item.file);  // FFmpeg — só para vídeos
           const outName = item.newName.replace(/\.[^.]+$/, '.mp4');
           const fh = await fmtDir.getFileHandle(outName, { create: true });
           const wr = await fh.createWritable();
-          await wr.write(blob);
+          await wr.write(outData);
           await wr.close();
         } else {
           const fh = await fmtDir.getFileHandle(item.newName, { create: true });
