@@ -815,7 +815,13 @@ function showLogin() {
   document.getElementById('app').style.display           = 'none';
 }
 
-auth.onAuthStateChanged(user => { if (user) showApp(user); else showLogin(); });
+(async () => {
+  try {
+    const result = await auth.getRedirectResult();
+    if (result && result.user) { showApp(result.user); return; }
+  } catch(e) { /* sem redirect pendente */ }
+  auth.onAuthStateChanged(user => { if (user) showApp(user); else showLogin(); });
+})();
 
 function loginGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
