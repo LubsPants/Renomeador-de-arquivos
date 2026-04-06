@@ -760,7 +760,52 @@ function showApp(user) {
   document.getElementById('loadingOverlay').style.display = 'none';
   document.getElementById('loginScreen').style.display   = 'none';
   document.getElementById('app').style.display           = 'block';
-  loadUserData().then(() => renderUI());
+  loadUserData().then(() => { renderUI(); _checkAutoLoad(); });
+}
+
+// ── Auto-load via postMessage (integração com Creative Generator) ────────────
+function _checkAutoLoad() {
+  if (new URLSearchParams(location.search).get('autoload') !== '1') return;
+  if (!window.opener) return;
+
+  const CG_ORIGIN = 'http://localhost:3000';
+
+  // Sinaliza ao Creative Generator que estamos prontos
+  const sendReady = () => window.opener.postMessage({ type: 'ready' }, CG_ORIGIN);
+  sendReady();
+  // Re-envia em caso de race condition (tab demora a abrir)
+  const t1 = setTimeout(sendReady, 1200);
+  const t2 = setTimeout(sendReady, 3000);
+
+  const handler = (e) => {
+    if (e.origin !== CG_ORIGIN) return;
+    clearTimeout(t1); clearTimeout(t2);
+
+    if (e.data.type === 'error') {
+      window.removeEventListener('message', handler);
+      showToast('Erro no Creative Generator: ' + e.data.message, 'error');
+      return;
+    }
+    if (e.data.type !== 'files') return;
+    window.removeEventListener('message', handler);
+
+    const byGroup = {};
+    e.data.files.forEach(({ blob, name, group }) => {
+      (byGroup[group] = byGroup[group] || []).push(new File([blob], name, { type: blob.type }));
+      // ST → replica para TIKTOK com nome ajustado
+      if (group === 'ST') {
+        const tikName = name.replace(/_st_/, '_tiktok_');
+        (byGroup['TIKTOK'] = byGroup['TIKTOK'] || []).push(new File([blob], tikName, { type: blob.type }));
+      }
+    });
+
+    Object.entries(byGroup).forEach(([group, fList]) => addFilesToGroup(fList, group));
+
+    const total = e.data.files.length;
+    showToast(`✅ ${total} criativo${total !== 1 ? 's' : ''} carregado${total !== 1 ? 's' : ''} do Creative Generator!`);
+  };
+
+  window.addEventListener('message', handler);
 }
 
 function showLogin() {
@@ -770,17 +815,11 @@ function showLogin() {
   document.getElementById('app').style.display           = 'none';
 }
 
-(async () => {
-  try {
-    const result = await auth.getRedirectResult();
-    if (result && result.user) { showApp(result.user); return; }
-  } catch(e) { /* sem redirect pendente */ }
-  auth.onAuthStateChanged(user => { if (user) showApp(user); else showLogin(); });
-})();
+auth.onAuthStateChanged(user => { if (user) showApp(user); else showLogin(); });
 
 function loginGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithRedirect(provider).catch(e => showLoginError(e.message));
+  auth.signInWithPopup(provider).catch(e => showLoginError(e.message));
 }
 
 function loginEmail() {
