@@ -815,17 +815,11 @@ function showLogin() {
   document.getElementById('app').style.display           = 'none';
 }
 
-(async () => {
-  try {
-    const result = await auth.getRedirectResult();
-    if (result && result.user) { showApp(result.user); return; }
-  } catch(e) { /* sem redirect pendente */ }
-  auth.onAuthStateChanged(user => { if (user) showApp(user); else showLogin(); });
-})();
+auth.onAuthStateChanged(user => { if (user) showApp(user); else showLogin(); });
 
 function loginGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithRedirect(provider).catch(e => showLoginError(e.message));
+  auth.signInWithPopup(provider).catch(e => showLoginError(e.message));
 }
 
 function loginEmail() {
