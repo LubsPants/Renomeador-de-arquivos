@@ -819,7 +819,7 @@ auth.onAuthStateChanged(user => { if (user) showApp(user); else showLogin(); });
 
 function loginGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithPopup(provider).catch(e => showLoginError(e.message));
+  auth.signInWithRedirect(provider).catch(e => showLoginError(e.message));
 }
 
 function loginEmail() {
