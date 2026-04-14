@@ -214,6 +214,7 @@
   }
   .btn-primary { background:var(--accent); color:white; }
   .btn-primary:hover { background:#4a4abb; transform:translateY(-1px); }
+  .btn:disabled { opacity:0.55; cursor:not-allowed; transform:none !important; box-shadow:none !important; }
   .btn-success { background:linear-gradient(135deg,var(--success),#059669); color:#0a0a0f; font-weight:700; }
   .btn-success:hover { transform:translateY(-1px); box-shadow:0 6px 20px rgba(52,211,153,0.25); }
   .btn-success:disabled { opacity:0.4; cursor:not-allowed; transform:none; box-shadow:none; }
@@ -579,7 +580,7 @@
         Próximo: <span id="nextNumVal">—</span>
       </div>
       <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-primary" onclick="renameAll()">⚡ Renomear Todos</button>
+        <button class="btn btn-primary" id="btnRename" onclick="renameAll()">⚡ Renomear Todos</button>
         <button class="btn btn-success" id="btnDownload" onclick="downloadAll()" disabled>📂 Salvar nas Pastas</button>
         <button class="btn btn-danger"  onclick="clearAll()">✕ Limpar</button>
       </div>
@@ -750,6 +751,8 @@ let files        = [];   // array of { file, group, newName }
 let isRegister   = false;
 let showAllCountries = false;
 let saveDebounce = null;
+let saveInFlight = null;
+let isRenaming = false;
 
 // ══════════════════════════════════════════════════════
 // AUTH
@@ -859,13 +862,28 @@ function translateAuthError(code) {
 // ══════════════════════════════════════════════════════
 function userDocRef() { return db.collection('users').doc(currentUser.uid); }
 
-async function loadUserData() {
-  // Inicializa contadores zerados
-  counters = {};
+function createEmptyCounters() {
+  const empty = {};
   COUNTRIES.forEach(c => {
-    counters[c] = {};
-    FRONTES.forEach(f => { counters[c][f] = 0; });
+    empty[c] = {};
+    FRONTES.forEach(f => { empty[c][f] = 0; });
   });
+  return empty;
+}
+
+function mergeCounters(base = {}, incoming = {}) {
+  const merged = JSON.parse(JSON.stringify(base));
+  COUNTRIES.forEach(c => {
+    FRONTES.forEach(f => {
+      const v = incoming?.[c]?.[f];
+      if (typeof v === 'number' && Number.isFinite(v)) merged[c][f] = Math.max(0, v);
+    });
+  });
+  return merged;
+}
+
+async function loadUserData() {
+  counters = createEmptyCounters();
   renameHistory = [];
 
   const snap = await userDocRef().get();
@@ -877,14 +895,7 @@ async function loadUserData() {
     document.getElementById('userName').value = data.displayName;
   }
 
-  if (data.counters) {
-    COUNTRIES.forEach(c => {
-      FRONTES.forEach(f => {
-        const v = data.counters?.[c]?.[f];
-        if (typeof v === 'number') counters[c][f] = v;
-      });
-    });
-  }
+  counters = mergeCounters(counters, data.counters || {});
 
   if (Array.isArray(data.history)) {
     renameHistory = data.history.slice(-MAX_HISTORY);
@@ -893,25 +904,82 @@ async function loadUserData() {
 
 function scheduleCloudSave() {
   clearTimeout(saveDebounce);
-  saveDebounce = setTimeout(saveToCloud, 1200);
+  saveDebounce = setTimeout(() => { saveToCloud(); }, 1200);
+}
+
+async function flushPendingCloudSave() {
+  if (saveDebounce) {
+    clearTimeout(saveDebounce);
+    saveDebounce = null;
+    await saveToCloud();
+    return;
+  }
+  if (saveInFlight) await saveInFlight;
 }
 
 async function saveToCloud() {
   if (!currentUser) return;
-  try {
-    await userDocRef().set({
+  if (saveInFlight) return saveInFlight;
+
+  const payload = {
+    displayName: document.getElementById('userName').value.trim().toUpperCase() || '',
+    counters:    JSON.parse(JSON.stringify(counters)),
+    history:     renameHistory.slice(-MAX_HISTORY),
+    updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  saveInFlight = userDocRef().set(payload, { merge: true })
+    .then(() => {
+      const ind = document.getElementById('savingIndicator');
+      ind.classList.add('show');
+      setTimeout(() => ind.classList.remove('show'), 2000);
+    })
+    .catch(e => {
+      console.error('Erro ao salvar:', e);
+      throw e;
+    })
+    .finally(() => {
+      saveInFlight = null;
+    });
+
+  return saveInFlight;
+}
+
+async function commitRenameProgress(pais, frente, historyEntry, maxCount) {
+  if (!currentUser) throw new Error('Usuário não autenticado.');
+
+  const result = await db.runTransaction(async tx => {
+    const ref  = userDocRef();
+    const snap = await tx.get(ref);
+    const data = snap.exists ? (snap.data() || {}) : {};
+    const mergedCounters = mergeCounters(createEmptyCounters(), data.counters || counters || {});
+    const serverStartNum = mergedCounters?.[pais]?.[frente] || 0;
+    mergedCounters[pais][frente] = serverStartNum + maxCount;
+
+    const existingHistory = Array.isArray(data.history) ? data.history.slice(-MAX_HISTORY) : [];
+    const nextHistory = [...existingHistory, historyEntry].slice(-MAX_HISTORY);
+
+    tx.set(ref, {
       displayName: document.getElementById('userName').value.trim().toUpperCase() || '',
-      counters:    JSON.parse(JSON.stringify(counters)),
-      history:     renameHistory.slice(-MAX_HISTORY),
-      updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
+      counters: mergedCounters,
+      history: nextHistory,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-    const ind = document.getElementById('savingIndicator');
-    ind.classList.add('show');
-    setTimeout(() => ind.classList.remove('show'), 2000);
-  } catch(e) {
-    console.error('Erro ao salvar:', e);
-  }
+    return { startNum: serverStartNum, counters: mergedCounters, history: nextHistory };
+  });
+
+  counters = result.counters;
+  renameHistory = result.history;
+  return result.startNum;
+}
+
+function setRenameBusy(busy) {
+  isRenaming = busy;
+  const btn = document.getElementById('btnRename');
+  if (!btn) return;
+  btn.disabled = busy;
+  btn.textContent = busy ? '⏳ Salvando numeração...' : '⚡ Renomear Todos';
 }
 
 async function saveName() {
@@ -1052,7 +1120,7 @@ function renderHistory() {
   list.appendChild(frag);
 }
 
-function addHistoryEntry(pais, frente, tipo, nome, grouped, startNum, maxCount) {
+function buildHistoryEntry(pais, frente, tipo, nome, grouped, startNum) {
   const formats = FORMATOS.map(fmt => ({
     fmt,
     count: grouped[fmt].length,
@@ -1060,15 +1128,12 @@ function addHistoryEntry(pais, frente, tipo, nome, grouped, startNum, maxCount) 
     to:    grouped[fmt].length > 0 ? startNum + grouped[fmt].length : 0
   }));
 
-  const entry = {
-    ts:      Date.now(),
+  return {
+    ts: Date.now(),
     pais, frente, tipo, nome,
     formats,
-    total: files.length
+    total: FORMATOS.reduce((sum, fmt) => sum + grouped[fmt].length, 0)
   };
-
-  renameHistory.push(entry);
-  if (renameHistory.length > MAX_HISTORY) renameHistory.shift();
 }
 
 // ══════════════════════════════════════════════════════
@@ -1218,7 +1283,12 @@ function escapeHtml(str) {
 // ══════════════════════════════════════════════════════
 // RENOMEAR — LÓGICA CORRIGIDA
 // ══════════════════════════════════════════════════════
-function renameAll() {
+async function renameAll() {
+  if (isRenaming) {
+    showToast('A renomeação já está em andamento. Aguarde finalizar.', 'warn');
+    return;
+  }
+
   const pais   = document.getElementById('selPais').value;
   const frente = document.getElementById('selFrente').value;
   const tipo   = document.getElementById('selTipo').value;
@@ -1233,33 +1303,45 @@ function renameAll() {
     return;
   }
 
-  const grouped   = groupByFormat();
-  const counts    = FORMATOS.map(f => grouped[f].length);
-  const maxCount  = Math.max(...counts);
-  const startNum  = counters[pais][frente];
+  const grouped  = groupByFormat();
+  const counts   = FORMATOS.map(f => grouped[f].length);
+  const maxCount = Math.max(...counts);
 
-  // ── Atribui números: mesmos índices recebem o mesmo número entre formatos
-  FORMATOS.forEach(fmt => {
-    grouped[fmt].forEach(({ item }, idx) => {
-      item.newName = buildName(item.file.name, fmt, startNum + idx + 1);
+  setRenameBusy(true);
+
+  try {
+    await flushPendingCloudSave();
+
+    const provisionalEntry = buildHistoryEntry(pais, frente, tipo, nome, grouped, counters[pais][frente]);
+    const startNum = await commitRenameProgress(pais, frente, provisionalEntry, maxCount);
+    const finalEntry = buildHistoryEntry(pais, frente, tipo, nome, grouped, startNum);
+
+    // Atualiza o histórico local com a numeração confirmada na transação
+    renameHistory = [...renameHistory.slice(0, -1), finalEntry].slice(-MAX_HISTORY);
+
+    // ── Atribui números: mesmos índices recebem o mesmo número entre formatos
+    FORMATOS.forEach(fmt => {
+      grouped[fmt].forEach(({ item }, idx) => {
+        item.newName = buildName(item.file.name, fmt, startNum + idx + 1);
+      });
     });
-  });
 
-  // Registra no histórico ANTES de avançar o contador
-  addHistoryEntry(pais, frente, tipo, nome, grouped, startNum, maxCount);
+    await saveToCloud();
 
-  // Avança o contador pelo tamanho do maior grupo
-  counters[pais][frente] = startNum + maxCount;
+    renderCounters();
+    renderGroups();
+    renderHistory();
+    updatePreviews();
+    updateNextNumBadge();
+    checkAlignmentWarning();
 
-  scheduleCloudSave();
-  renderCounters();
-  renderGroups();
-  renderHistory();
-  updatePreviews();
-  updateNextNumBadge();
-  checkAlignmentWarning();
-
-  showToast(`✓ ${files.length} arquivo(s) renomeado(s)!`);
+    showToast(`✓ ${files.length} arquivo(s) renomeado(s)!`);
+  } catch (e) {
+    console.error('Erro ao renomear:', e);
+    showToast('Erro ao salvar a nova numeração. Tente novamente.', 'error');
+  } finally {
+    setRenameBusy(false);
+  }
 }
 
 // ══════════════════════════════════════════════════════
