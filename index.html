@@ -768,10 +768,11 @@ function showApp(user) {
 
 // ── Auto-load via postMessage (integração com Creative Generator) ────────────
 function _checkAutoLoad() {
-  if (new URLSearchParams(location.search).get('autoload') !== '1') return;
+  const params = new URLSearchParams(location.search);
+  if (params.get('autoload') !== '1') return;
   if (!window.opener) return;
 
-  const CG_ORIGIN = 'http://localhost:3000';
+  const CG_ORIGIN = params.get('cg_origin') ? decodeURIComponent(params.get('cg_origin')) : 'http://localhost:3000';
 
   // Sinaliza ao Creative Generator que estamos prontos
   const sendReady = () => window.opener.postMessage({ type: 'ready' }, CG_ORIGIN);
@@ -1693,7 +1694,7 @@ async function processWithFFmpeg(mediaFile) {
 }
 
 // ══════════════════════════════════════════════════════
-// VÍDEO COM ÁUDIO — MediaRecorder (nativo, sem FFmpeg)
+// VÍDEO COM ÁUDIO — WebCodecs (seek por frame, offline)
 // ══════════════════════════════════════════════════════
 async function recordVideoWithAudio(videoFile) {
   const DURATION = 14;
@@ -1712,51 +1713,87 @@ async function recordVideoWithAudio(videoFile) {
 
   const W = (video.videoWidth  || 1280) & ~1;
   const H = (video.videoHeight || 720)  & ~1;
+
+  if (typeof VideoEncoder === 'undefined') {
+    throw new Error('VideoEncoder não disponível neste browser. Use Chrome 94+.');
+  }
+
+  if (!window._mp4MuxerReady) {
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('mp4-muxer timeout ao carregar')), 10000);
+      window.addEventListener('mp4muxer-ready', () => { clearTimeout(t); res(); }, { once: true });
+    });
+  }
+  const Mux = window.Mp4Muxer;
+  if (!Mux) throw new Error('mp4-muxer não carregou.');
+
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
 
-  const stream = canvas.captureStream(30);
+  const srcDur = isFinite(video.duration) && video.duration > 0 ? video.duration : DURATION;
+
+  const FPS          = 24;
+  const TOTAL_FRAMES = DURATION * FPS;
+  const FRAME_DUR_US = Math.round(1_000_000 / FPS);
+
+  const target = new Mux.ArrayBufferTarget();
+  const muxer  = new Mux.Muxer({
+    target,
+    video: { codec: 'avc', width: W, height: H },
+    ...(audioBuf ? { audio: { codec: 'aac', sampleRate: audioBuf.sampleRate, numberOfChannels: audioBuf.numberOfChannels } } : {}),
+    fastStart: 'in-memory',
+  });
+
+  const pixelCount  = W * H;
+  const avcCodec    = pixelCount <= 414720 ? 'avc1.42001e' : pixelCount <= 2097152 ? 'avc1.640028' : 'avc1.640033';
+  const videoBitrate = pixelCount > 1000000 ? 1_200_000 : 800_000;
+
+  const videoEnc = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error: e => { throw e; },
+  });
+  videoEnc.configure({ codec: avcCodec, width: W, height: H, bitrate: videoBitrate, framerate: FPS, avc: { format: 'avc' } });
+
+  for (let i = 0; i < TOTAL_FRAMES; i++) {
+    video.currentTime = (i / FPS) % srcDur;
+    await new Promise(res => { video.onseeked = res; });
+    ctx.drawImage(video, 0, 0, W, H);
+    const frame = new VideoFrame(canvas, { timestamp: i * FRAME_DUR_US, duration: FRAME_DUR_US });
+    videoEnc.encode(frame, { keyFrame: i % (FPS * 2) === 0 });
+    frame.close();
+    setProcBar(Math.min(99, Math.round(i / TOTAL_FRAMES * 100)));
+    setProcFile(`${(i / FPS).toFixed(1)}s / ${DURATION}s`);
+  }
+  await videoEnc.flush();
+  videoEnc.close();
 
   if (audioBuf) {
-    const playCtx = new AudioContext({ sampleRate: audioBuf.sampleRate });
-    if (playCtx.state === 'suspended') await playCtx.resume();
-    const src  = playCtx.createBufferSource();
-    const dest = playCtx.createMediaStreamDestination();
-    src.buffer = audioBuf;
-    src.connect(dest);
-    src.start(0);
-    dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+    const SR = audioBuf.sampleRate, NCHAN = audioBuf.numberOfChannels;
+    const CHUNK = 8192;
+    const audioEnc = new AudioEncoder({
+      output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+      error: e => { throw e; },
+    });
+    audioEnc.configure({ codec: 'mp4a.40.2', sampleRate: SR, numberOfChannels: NCHAN, bitrate: 128_000 });
+    const channels = Array.from({ length: NCHAN }, (_, ch) => audioBuf.getChannelData(ch));
+    for (let offset = 0; offset < audioBuf.length; offset += CHUNK) {
+      const size = Math.min(CHUNK, audioBuf.length - offset);
+      const interleaved = new Float32Array(size * NCHAN);
+      for (let s = 0; s < size; s++)
+        for (let ch = 0; ch < NCHAN; ch++)
+          interleaved[s * NCHAN + ch] = channels[ch][offset + s] || 0;
+      const ad = new AudioData({ format: 'f32', sampleRate: SR, numberOfFrames: size, numberOfChannels: NCHAN, timestamp: Math.round(offset / SR * 1_000_000), data: interleaved });
+      audioEnc.encode(ad); ad.close();
+    }
+    await audioEnc.flush();
+    audioEnc.close();
   }
 
-  await video.play();
-  const drawId = setInterval(() => ctx.drawImage(video, 0, 0, W, H), 33);
-
-  const mime   = ['video/mp4;codecs=avc1,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm']
-                   .find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
-  const chunks = [];
-  const rec    = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_500_000 });
-  rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-  rec.start(250);
-
-  const t0 = Date.now();
-  const progId = setInterval(() => {
-    const elapsed = (Date.now() - t0) / 1000;
-    setProcBar(Math.min(99, Math.round(elapsed / DURATION * 100)));
-    setProcFile(`${elapsed.toFixed(1)}s / ${DURATION}s`);
-  }, 200);
-
-  await new Promise(r => setTimeout(r, DURATION * 1000));
-
-  clearInterval(drawId);
-  clearInterval(progId);
-  video.pause();
+  muxer.finalize();
   URL.revokeObjectURL(url);
-  rec.stop();
-  await new Promise(r => { rec.onstop = r; });
-  stream.getTracks().forEach(t => t.stop());
-
-  return new Blob(chunks, { type: mime });
+  const result = new Uint8Array(target.buffer.slice(0));
+  return fixMp4Timescale(result, DURATION);
 }
 
 // ══════════════════════════════════════════════════════
