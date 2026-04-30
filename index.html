@@ -1733,9 +1733,10 @@ async function recordVideoWithAudio(videoFile) {
 
   const srcDur = isFinite(video.duration) && video.duration > 0 ? video.duration : DURATION;
 
-  const FPS          = 24;
+  const FPS          = 10;
   const TOTAL_FRAMES = DURATION * FPS;
   const FRAME_DUR_US = Math.round(1_000_000 / FPS);
+  const uniqueFrames = Math.ceil(Math.min(srcDur, DURATION) * FPS);
 
   const target = new Mux.ArrayBufferTarget();
   const muxer  = new Mux.Muxer({
@@ -1755,16 +1756,25 @@ async function recordVideoWithAudio(videoFile) {
   });
   videoEnc.configure({ codec: avcCodec, width: W, height: H, bitrate: videoBitrate, framerate: FPS, avc: { format: 'avc' } });
 
-  for (let i = 0; i < TOTAL_FRAMES; i++) {
-    video.currentTime = (i / FPS) % srcDur;
+  // Extrai frames únicos uma vez e reutiliza no loop (evita seeks repetidos)
+  const bitmaps = [];
+  for (let i = 0; i < uniqueFrames; i++) {
+    video.currentTime = i / FPS;
     await new Promise(res => { video.onseeked = res; });
-    ctx.drawImage(video, 0, 0, W, H);
+    bitmaps.push(await createImageBitmap(video));
+    setProcBar(Math.min(49, Math.round(i / uniqueFrames * 50)));
+    setProcFile(`Extraindo: ${(i / FPS).toFixed(1)}s`);
+  }
+
+  for (let i = 0; i < TOTAL_FRAMES; i++) {
+    ctx.drawImage(bitmaps[i % uniqueFrames], 0, 0, W, H);
     const frame = new VideoFrame(canvas, { timestamp: i * FRAME_DUR_US, duration: FRAME_DUR_US });
     videoEnc.encode(frame, { keyFrame: i % (FPS * 2) === 0 });
     frame.close();
-    setProcBar(Math.min(99, Math.round(i / TOTAL_FRAMES * 100)));
-    setProcFile(`${(i / FPS).toFixed(1)}s / ${DURATION}s`);
+    setProcBar(50 + Math.min(49, Math.round(i / TOTAL_FRAMES * 49)));
+    setProcFile(`Codificando: ${(i / FPS).toFixed(1)}s / ${DURATION}s`);
   }
+  bitmaps.forEach(b => b.close());
   await videoEnc.flush();
   videoEnc.close();
 
