@@ -1733,7 +1733,7 @@ async function recordVideoWithAudio(videoFile) {
 
   const srcDur = isFinite(video.duration) && video.duration > 0 ? video.duration : DURATION;
 
-  const FPS          = 10;
+  const FPS          = 24;
   const TOTAL_FRAMES = DURATION * FPS;
   const FRAME_DUR_US = Math.round(1_000_000 / FPS);
   const uniqueFrames = Math.ceil(Math.min(srcDur, DURATION) * FPS);
@@ -1748,7 +1748,7 @@ async function recordVideoWithAudio(videoFile) {
 
   const pixelCount  = W * H;
   const avcCodec    = pixelCount <= 414720 ? 'avc1.42001e' : pixelCount <= 2097152 ? 'avc1.640028' : 'avc1.640033';
-  const videoBitrate = pixelCount > 1000000 ? 1_200_000 : 800_000;
+  const videoBitrate = 2_500_000;
 
   const videoEnc = new VideoEncoder({
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
