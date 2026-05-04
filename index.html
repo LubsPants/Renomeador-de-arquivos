@@ -1348,9 +1348,13 @@ async function renameAll() {
 // ══════════════════════════════════════════════════════
 // DOWNLOAD
 // ══════════════════════════════════════════════════════
+let _downloadRunning = false;
 async function downloadAll() {
+  if (_downloadRunning) return;
   const renamed = files.filter(f => f.newName);
   if (!renamed.length) return;
+  _downloadRunning = true;
+  document.getElementById('btnDownload').disabled = true;
 
   const pais    = document.getElementById('selPais').value || 'FILES';
   const grouped = { FEED: [], ST: [], TIKTOK: [] };
@@ -1388,27 +1392,33 @@ async function downloadAll() {
       const fmtDir = await paisDir.getDirectoryHandle(fmt, { create: true });
       for (const item of grouped[fmt]) {
         const needsProcessing = hasAnyAudio();
-        if (needsProcessing) {
-          mp4Done++;
-          setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
-          setProcFile(item.newName);
-          setProcBar(Math.round((mp4Done / mp4Count) * 100));
-          const outData = isImageExt(item.file.name)
-            ? await convertImageToMp4(item.file)    // WebCodecs — instantâneo
-            : await recordVideoWithAudio(item.file); // MediaRecorder — nativo
-          const outName = item.newName.replace(/\.[^.]+$/, '.mp4');
-          const fh = await fmtDir.getFileHandle(outName, { create: true });
-          const wr = await fh.createWritable();
-          await wr.write(outData);
-          await wr.close();
-        } else {
-          const fh = await fmtDir.getFileHandle(item.newName, { create: true });
-          const wr = await fh.createWritable();
-          await wr.write(item.file);
-          await wr.close();
+        try {
+          if (needsProcessing) {
+            mp4Done++;
+            setProcSub(`Gerando MP4 ${mp4Done}/${mp4Count}`);
+            setProcFile(item.newName);
+            setProcBar(Math.round((mp4Done / mp4Count) * 100));
+            const outData = isImageExt(item.file.name)
+              ? await convertImageToMp4(item.file)
+              : await recordVideoWithAudio(item.file);
+            const outName = item.newName.replace(/\.[^.]+$/, '.mp4');
+            const fh = await fmtDir.getFileHandle(outName, { create: true });
+            const wr = await fh.createWritable();
+            await wr.write(outData);
+            await wr.close();
+          } else {
+            const fh = await fmtDir.getFileHandle(item.newName, { create: true });
+            const wr = await fh.createWritable();
+            await wr.write(item.file);
+            await wr.close();
+          }
+          saved++;
+          showToast(`Salvando... ${saved}/${renamed.length}`);
+        } catch (itemErr) {
+          if (itemErr.name === 'AbortError') throw itemErr;
+          console.error('Falha ao processar', item.file.name, itemErr);
+          showToast(`⚠️ Erro em ${item.newName} — continuando`, 'error');
         }
-        saved++;
-        showToast(`Salvando... ${saved}/${renamed.length}`);
       }
     }
     overlay.classList.remove('show');
@@ -1416,6 +1426,9 @@ async function downloadAll() {
   } catch (err) {
     overlay.classList.remove('show');
     if (err.name !== 'AbortError') { showToast(`Erro ao salvar: ${err.message}`, 'error'); console.error(err); }
+  } finally {
+    _downloadRunning = false;
+    document.getElementById('btnDownload').disabled = !files.some(f => f.newName);
   }
 }
 
@@ -1733,10 +1746,9 @@ async function recordVideoWithAudio(videoFile) {
 
   const srcDur = isFinite(video.duration) && video.duration > 0 ? video.duration : DURATION;
 
-  const FPS          = 24;
+  const FPS          = 15;
   const TOTAL_FRAMES = DURATION * FPS;
   const FRAME_DUR_US = Math.round(1_000_000 / FPS);
-  const uniqueFrames = Math.ceil(Math.min(srcDur, DURATION) * FPS);
 
   const target = new Mux.ArrayBufferTarget();
   const muxer  = new Mux.Muxer({
@@ -1756,25 +1768,20 @@ async function recordVideoWithAudio(videoFile) {
   });
   videoEnc.configure({ codec: avcCodec, width: W, height: H, bitrate: videoBitrate, framerate: FPS, avc: { format: 'avc' } });
 
-  // Extrai frames únicos uma vez e reutiliza no loop (evita seeks repetidos)
-  const bitmaps = [];
-  for (let i = 0; i < uniqueFrames; i++) {
-    video.currentTime = i / FPS;
-    await new Promise(res => { video.onseeked = res; });
-    bitmaps.push(await createImageBitmap(video));
-    setProcBar(Math.min(49, Math.round(i / uniqueFrames * 50)));
-    setProcFile(`Extraindo: ${(i / FPS).toFixed(1)}s`);
-  }
-
   for (let i = 0; i < TOTAL_FRAMES; i++) {
-    ctx.drawImage(bitmaps[i % uniqueFrames], 0, 0, W, H);
+    const seekTarget = (i / FPS) % srcDur;
+    await new Promise(res => {
+      const t = setTimeout(res, 2000);
+      video.onseeked = () => { clearTimeout(t); res(); };
+      video.currentTime = seekTarget;
+    });
+    ctx.drawImage(video, 0, 0, W, H);
     const frame = new VideoFrame(canvas, { timestamp: i * FRAME_DUR_US, duration: FRAME_DUR_US });
     videoEnc.encode(frame, { keyFrame: i % (FPS * 2) === 0 });
     frame.close();
-    setProcBar(50 + Math.min(49, Math.round(i / TOTAL_FRAMES * 49)));
-    setProcFile(`Codificando: ${(i / FPS).toFixed(1)}s / ${DURATION}s`);
+    setProcBar(Math.min(99, Math.round(i / TOTAL_FRAMES * 100)));
+    setProcFile(`${(i / FPS).toFixed(1)}s / ${DURATION}s`);
   }
-  bitmaps.forEach(b => b.close());
   await videoEnc.flush();
   videoEnc.close();
 
