@@ -1353,39 +1353,41 @@ async function downloadAll() {
   if (_downloadRunning) return;
   const renamed = files.filter(f => f.newName);
   if (!renamed.length) return;
-  _downloadRunning = true;
-  document.getElementById('btnDownload').disabled = true;
-
-  const pais    = document.getElementById('selPais').value || 'FILES';
-  const grouped = { FEED: [], ST: [], TIKTOK: [] };
-  renamed.forEach(item => grouped[item.group].push(item));
-  const active  = FORMATOS.filter(f => grouped[f].length > 0);
-  const mp4Count = hasAnyAudio() ? renamed.length : 0;
 
   if (!('showDirectoryPicker' in window)) {
     showToast('Use Chrome ou Edge para salvar pastas.', 'error'); return;
   }
 
-  let rootDir;
-  try {
-    showToast('Escolha onde salvar...');
-    rootDir = await window.showDirectoryPicker({ mode: 'readwrite', startIn: 'downloads' });
-  } catch (err) {
-    if (err.name === 'AbortError') { showToast('Cancelado.', 'warn'); return; }
-    showToast('Erro: ' + err.message, 'error'); return;
-  }
+  _downloadRunning = true;
+  document.getElementById('btnDownload').disabled = true;
 
-  const overlay = document.getElementById('processingOverlay');
-  if (mp4Count > 0) {
-    overlay.classList.add('show'); setProcBar(0); setProcFile('');
-    setProcSub('Preparando áudio...');
-    _cachedAudioBuf = null; _cachedAudioKey = '';
-    await warmAudioCache(14);
-    setProcSub('Gerando MP4s...');
-  }
-
-  let saved = 0, mp4Done = 0;
   try {
+    const pais    = document.getElementById('selPais').value || 'FILES';
+    const grouped = { FEED: [], ST: [], TIKTOK: [] };
+    renamed.forEach(item => grouped[item.group].push(item));
+    const active  = FORMATOS.filter(f => grouped[f].length > 0);
+    const mp4Count = hasAnyAudio() ? renamed.length : 0;
+
+    let rootDir;
+    try {
+      showToast('Escolha onde salvar...');
+      rootDir = await window.showDirectoryPicker({ mode: 'readwrite', startIn: 'downloads' });
+    } catch (err) {
+      if (err.name === 'AbortError') showToast('Cancelado.', 'warn');
+      else showToast('Erro: ' + err.message, 'error');
+      return;
+    }
+
+    const overlay = document.getElementById('processingOverlay');
+    if (mp4Count > 0) {
+      overlay.classList.add('show'); setProcBar(0); setProcFile('');
+      setProcSub('Preparando áudio...');
+      _cachedAudioBuf = null; _cachedAudioKey = '';
+      await warmAudioCache(14);
+      setProcSub('Gerando MP4s...');
+    }
+
+    let saved = 0, mp4Done = 0;
     const paisDir = await rootDir.getDirectoryHandle(pais, { create: true });
     // Processa sequencialmente — garante que cada arquivo é escrito completamente antes do próximo
     for (const fmt of active) {
@@ -1415,7 +1417,6 @@ async function downloadAll() {
           saved++;
           showToast(`Salvando... ${saved}/${renamed.length}`);
         } catch (itemErr) {
-          if (itemErr.name === 'AbortError') throw itemErr;
           console.error('Falha ao processar', item.file.name, itemErr);
           showToast(`⚠️ Erro em ${item.newName} — continuando`, 'error');
         }
@@ -1424,7 +1425,7 @@ async function downloadAll() {
     overlay.classList.remove('show');
     showToast(`✓ ${saved} arquivo(s) salvos em ${pais}/${active.join(', ')}!`);
   } catch (err) {
-    overlay.classList.remove('show');
+    document.getElementById('processingOverlay').classList.remove('show');
     if (err.name !== 'AbortError') { showToast(`Erro ao salvar: ${err.message}`, 'error'); console.error(err); }
   } finally {
     _downloadRunning = false;
