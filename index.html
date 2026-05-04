@@ -158,7 +158,8 @@
   .counters-empty { text-align:center; font-size:11px; color:var(--muted); padding:16px 8px; line-height:1.6; }
   .counter-item { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; transition:border-color 0.2s; }
   .counter-item:hover { border-color:rgba(91,91,214,0.4); }
-  .ci-head { font-size:10px; color:var(--accent2); font-weight:600; margin-bottom:5px; }
+  .ci-head    { font-size:10px; color:var(--accent2); font-weight:600; margin-bottom:5px; }
+  .ci-subhead { font-size:9px; color:var(--muted); font-weight:700; letter-spacing:0.5px; text-transform:uppercase; margin:5px 0 3px; }
   .ci-row  { display:flex; gap:6px; }
   .ci-col  { flex:1; display:flex; flex-direction:column; gap:2px; }
   .ci-col span { font-size:9px; color:var(--muted); text-transform:uppercase; }
@@ -745,7 +746,7 @@ const auth = firebase.auth();
 const db   = firebase.firestore();
 
 let currentUser  = null;
-let counters     = {};   // counters[country][frente] = number
+let counters     = {};   // counters[country][frente] = { FEED, ST, TIKTOK }
 let renameHistory = [];  // array of history entries (max MAX_HISTORY)
 let files        = [];   // array of { file, group, newName }
 let isRegister   = false;
@@ -867,7 +868,7 @@ function createEmptyCounters() {
   const empty = {};
   COUNTRIES.forEach(c => {
     empty[c] = {};
-    FRONTES.forEach(f => { empty[c][f] = 0; });
+    FRONTES.forEach(f => { empty[c][f] = { FEED: 0, ST: 0, TIKTOK: 0 }; });
   });
   return empty;
 }
@@ -877,7 +878,15 @@ function mergeCounters(base = {}, incoming = {}) {
   COUNTRIES.forEach(c => {
     FRONTES.forEach(f => {
       const v = incoming?.[c]?.[f];
-      if (typeof v === 'number' && Number.isFinite(v)) merged[c][f] = Math.max(0, v);
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        // backward compat: dado antigo era um único número — aplica a todos os formatos
+        FORMATOS.forEach(fmt => { merged[c][f][fmt] = Math.max(0, v); });
+      } else if (v && typeof v === 'object') {
+        FORMATOS.forEach(fmt => {
+          const fv = v[fmt];
+          if (typeof fv === 'number' && Number.isFinite(fv)) merged[c][f][fmt] = Math.max(0, fv);
+        });
+      }
     });
   });
   return merged;
@@ -946,7 +955,7 @@ async function saveToCloud() {
   return saveInFlight;
 }
 
-async function commitRenameProgress(pais, frente, historyEntry, maxCount) {
+async function commitRenameProgress(pais, frente, historyEntry, grouped) {
   if (!currentUser) throw new Error('Usuário não autenticado.');
 
   const result = await db.runTransaction(async tx => {
@@ -954,8 +963,10 @@ async function commitRenameProgress(pais, frente, historyEntry, maxCount) {
     const snap = await tx.get(ref);
     const data = snap.exists ? (snap.data() || {}) : {};
     const mergedCounters = mergeCounters(createEmptyCounters(), data.counters || counters || {});
-    const serverStartNum = mergedCounters?.[pais]?.[frente] || 0;
-    mergedCounters[pais][frente] = serverStartNum + maxCount;
+    const serverStartNums = { ...mergedCounters[pais][frente] };
+    FORMATOS.forEach(fmt => {
+      mergedCounters[pais][frente][fmt] = serverStartNums[fmt] + grouped[fmt].length;
+    });
 
     const existingHistory = Array.isArray(data.history) ? data.history.slice(-MAX_HISTORY) : [];
     const nextHistory = [...existingHistory, historyEntry].slice(-MAX_HISTORY);
@@ -967,12 +978,12 @@ async function commitRenameProgress(pais, frente, historyEntry, maxCount) {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-    return { startNum: serverStartNum, counters: mergedCounters, history: nextHistory };
+    return { startNums: serverStartNums, counters: mergedCounters, history: nextHistory };
   });
 
   counters = result.counters;
   renameHistory = result.history;
-  return result.startNum;
+  return result.startNums;
 }
 
 function setRenameBusy(busy) {
@@ -1021,7 +1032,7 @@ function getActiveCountries() {
   if (showAllCountries) return COUNTRIES;
 
   const active = COUNTRIES.filter(c =>
-    c === selected || FRONTES.some(f => counters[c][f] > 0)
+    c === selected || FRONTES.some(f => FORMATOS.some(fmt => counters[c][f][fmt] > 0))
   );
   return active;
 }
@@ -1049,15 +1060,18 @@ function renderCounters() {
       div.className = 'counter-item';
       div.innerHTML = `
         <div class="ci-head">${c}</div>
-        <div class="ci-row">
-          ${FRONTES.map(f => `
-            <div class="ci-col">
-              <span>${f}</span>
-              <input type="number" min="0" value="${counters[c][f]}"
-                onchange="setCounter('${c}','${f}',this.value)" />
-            </div>
-          `).join('')}
-        </div>
+        ${FRONTES.map(f => `
+          <div class="ci-subhead">${f}</div>
+          <div class="ci-row">
+            ${FORMATOS.map(fmt => `
+              <div class="ci-col">
+                <span>${fmt}</span>
+                <input type="number" min="0" value="${counters[c][f][fmt]}"
+                  onchange="setCounter('${c}','${f}','${fmt}',this.value)" />
+              </div>
+            `).join('')}
+          </div>
+        `).join('')}
       `;
       frag.appendChild(div);
     });
@@ -1067,8 +1081,8 @@ function renderCounters() {
   list.appendChild(frag);
 }
 
-function setCounter(c, f, val) {
-  counters[c][f] = Math.max(0, parseInt(val) || 0);
+function setCounter(c, f, fmt, val) {
+  counters[c][f][fmt] = Math.max(0, parseInt(val) || 0);
   scheduleCloudSave();
   updatePreviews();
   updateNextNumBadge();
@@ -1121,12 +1135,12 @@ function renderHistory() {
   list.appendChild(frag);
 }
 
-function buildHistoryEntry(pais, frente, tipo, nome, grouped, startNum) {
+function buildHistoryEntry(pais, frente, tipo, nome, grouped, startNums) {
   const formats = FORMATOS.map(fmt => ({
     fmt,
     count: grouped[fmt].length,
-    from:  grouped[fmt].length > 0 ? startNum + 1 : 0,
-    to:    grouped[fmt].length > 0 ? startNum + grouped[fmt].length : 0
+    from:  grouped[fmt].length > 0 ? startNums[fmt] + 1 : 0,
+    to:    grouped[fmt].length > 0 ? startNums[fmt] + grouped[fmt].length : 0
   }));
 
   return {
@@ -1152,7 +1166,7 @@ function updatePreviews() {
       el.innerHTML = '<span class="muted">Preencha os campos...</span>';
       return;
     }
-    const num = counters[pais][frente] + 1;
+    const num = counters[pais][frente][fmt] + 1;
     el.textContent = `${pad(num)}_${tipo}_${frente}_${pais}_${fmt}_${nome}.ext`;
   });
 
@@ -1167,7 +1181,7 @@ function updateNextNumBadge() {
   const val    = document.getElementById('nextNumVal');
 
   if (pais && frente) {
-    const next = counters[pais][frente] + 1;
+    const next = Math.min(...FORMATOS.map(fmt => counters[pais][frente][fmt])) + 1;
     val.textContent = pad(next);
     badge.style.display = '';
   } else {
@@ -1304,26 +1318,25 @@ async function renameAll() {
     return;
   }
 
-  const grouped  = groupByFormat();
-  const counts   = FORMATOS.map(f => grouped[f].length);
-  const maxCount = Math.max(...counts);
+  const grouped = groupByFormat();
 
   setRenameBusy(true);
 
   try {
     await flushPendingCloudSave();
 
-    const provisionalEntry = buildHistoryEntry(pais, frente, tipo, nome, grouped, counters[pais][frente]);
-    const startNum = await commitRenameProgress(pais, frente, provisionalEntry, maxCount);
-    const finalEntry = buildHistoryEntry(pais, frente, tipo, nome, grouped, startNum);
+    const provisionalStartNums = { ...counters[pais][frente] };
+    const provisionalEntry = buildHistoryEntry(pais, frente, tipo, nome, grouped, provisionalStartNums);
+    const startNums = await commitRenameProgress(pais, frente, provisionalEntry, grouped);
+    const finalEntry = buildHistoryEntry(pais, frente, tipo, nome, grouped, startNums);
 
     // Atualiza o histórico local com a numeração confirmada na transação
     renameHistory = [...renameHistory.slice(0, -1), finalEntry].slice(-MAX_HISTORY);
 
-    // ── Atribui números: mesmos índices recebem o mesmo número entre formatos
+    // ── Cada formato avança seu próprio contador independentemente
     FORMATOS.forEach(fmt => {
       grouped[fmt].forEach(({ item }, idx) => {
-        item.newName = buildName(item.file.name, fmt, startNum + idx + 1);
+        item.newName = buildName(item.file.name, fmt, startNums[fmt] + idx + 1);
       });
     });
 
