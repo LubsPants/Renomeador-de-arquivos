@@ -1204,8 +1204,8 @@ function buildName(origName, fmt, num) {
   const frente = document.getElementById('selFrente').value;
   const tipo   = document.getElementById('selTipo').value;
   const nome   = document.getElementById('userName').value.trim().toUpperCase() || 'NOME';
-  // Se há áudio carregado, a saída sempre será MP4 (imagem ou vídeo)
-  const ext = hasAnyAudio() ? 'mp4' : getExt(origName);
+  // Imagens e vídeos sempre viram MP4 14s; outros arquivos mantêm extensão original
+  const ext = isMediaExt(origName) ? 'mp4' : getExt(origName);
   return `${pad(num)}_${tipo}_${frente}_${pais}_${fmt}_${nome}.${ext}`;
 }
 
@@ -1271,7 +1271,7 @@ function renderGroups() {
       const ext = getExt(item.file.name);
       const div = document.createElement('div');
       div.className = 'file-chip' + (item.newName ? ' renamed' : '');
-      const willBeMp4 = hasAnyAudio();
+      const willBeMp4 = isMediaExt(item.file.name);
       div.innerHTML = `
         <div class="chip-icon ${ext}">${getIcon(ext)}</div>
         <div class="chip-info">
@@ -1379,7 +1379,7 @@ async function downloadAll() {
     const grouped = { FEED: [], ST: [], TIKTOK: [] };
     renamed.forEach(item => grouped[item.group].push(item));
     const active  = FORMATOS.filter(f => grouped[f].length > 0);
-    const mp4Count = hasAnyAudio() ? renamed.length : 0;
+    const mp4Count = renamed.filter(f => isMediaExt(f.file.name)).length;
 
     let rootDir;
     try {
@@ -1394,9 +1394,11 @@ async function downloadAll() {
     const overlay = document.getElementById('processingOverlay');
     if (mp4Count > 0) {
       overlay.classList.add('show'); setProcBar(0); setProcFile('');
-      setProcSub('Preparando áudio...');
-      _cachedAudioBuf = null; _cachedAudioKey = '';
-      await warmAudioCache(14);
+      if (hasAnyAudio()) {
+        setProcSub('Preparando áudio...');
+        _cachedAudioBuf = null; _cachedAudioKey = '';
+        await warmAudioCache(14);
+      }
       setProcSub('Gerando MP4s...');
     }
 
@@ -1406,7 +1408,7 @@ async function downloadAll() {
     for (const fmt of active) {
       const fmtDir = await paisDir.getDirectoryHandle(fmt, { create: true });
       for (const item of grouped[fmt]) {
-        const needsProcessing = hasAnyAudio();
+        const needsProcessing = isMediaExt(item.file.name);
         try {
           if (needsProcessing) {
             mp4Done++;
@@ -1495,6 +1497,10 @@ function hasAnyAudio() { return !!(audioFile || bgAudioFile); }
 function isImageExt(name) {
   return ['png','jpg','jpeg','webp'].includes(getExt(name));
 }
+function isVideoExt(name) {
+  return ['mp4','mov','webm','avi','mkv'].includes(getExt(name));
+}
+function isMediaExt(name) { return isImageExt(name) || isVideoExt(name); }
 
 function readAudioDuration(file, cb) {
   const ac = new AudioContext();
@@ -1758,7 +1764,19 @@ async function recordVideoWithAudio(videoFile) {
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
 
-  const srcDur = isFinite(video.duration) && video.duration > 0 ? video.duration : DURATION;
+  // Detecta duração real seekando ao final — video.duration pode ser impreciso
+  await new Promise(res => {
+    const t = setTimeout(res, 5000);
+    video.onseeked = () => { clearTimeout(t); res(); };
+    video.currentTime = 1e9;
+  });
+  const srcDur = video.currentTime > 0 ? video.currentTime : DURATION;
+  // Volta ao início antes de capturar frames
+  await new Promise(res => {
+    const t = setTimeout(res, 5000);
+    video.onseeked = () => { clearTimeout(t); res(); };
+    video.currentTime = 0;
+  });
 
   const FPS          = 15;
   const TOTAL_FRAMES = DURATION * FPS;
